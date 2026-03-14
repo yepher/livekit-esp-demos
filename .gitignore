@@ -1,0 +1,22 @@
+# Build output
+build/
+managed_components/
+dependencies.lock
+
+# ESP-IDF
+sdkconfig.old
+sdkconfig.defaults.old
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Python (ESP-IDF tooling)
+__pycache__/
+*.py[cod]
