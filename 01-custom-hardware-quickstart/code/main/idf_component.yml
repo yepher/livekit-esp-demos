@@ -1,0 +1,8 @@
+dependencies:
+  idf: ">=5.4"
+  livekit/livekit: "0.3.6"
+  livekit/sandbox_token: "~0.1.0"
+  livekit/example_utils: "~0.2.0"
+  espressif/esp_codec_dev: "~1.3.0"
+  espressif/es8311: "*"
+  espressif/es7210: "*"
