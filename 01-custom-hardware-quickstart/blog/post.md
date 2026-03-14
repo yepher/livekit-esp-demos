@@ -1,97 +1,86 @@
 # Running the LiveKit ESP32 SDK on Custom Hardware
 
-The LiveKit ESP32 SDK ships with examples that target specific reference boards like the ESP32-S3-BOX-3 and ESP-Korvo-2. If you're building a product on your own hardware — or evaluating on a dev board that isn't in the examples — you need to know how to adapt the SDK to your pin configuration and audio codecs.
+The LiveKit ESP32 SDK ships with [examples](https://components.espressif.com/components/livekit/livekit/versions/0.3.6/examples) for reference boards like the ESP32-S3-BOX-3 and ESP-Korvo-2. But if you're building a product on your own hardware — or evaluating on a dev board that isn't in the examples — you need to adapt the SDK to your pin configuration and audio codecs.
 
-This post walks through the process end-to-end using the [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) as a concrete example. The board does have a published BSP, but we intentionally configure it manually to demonstrate the process for any board.
+This post walks through the full process: read the schematic, map the pins, initialize the audio hardware, and get a two-way LiveKit audio session running. We use the [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) as a concrete example. We picked this board because it's affordable (~$16), widely available, and uses the ES8311 + ES7210 codec pair — the same audio front-end found on Espressif's own reference boards. Its compact form factor and battery header also make it a good candidate for embedding in your own product enclosure. The board has a published BSP, but we configure everything manually to show how it works on *any* board.
 
 ## What you'll need
 
-- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) (or your own board)
-- ESP-IDF 5.4 or later
-- A LiveKit Cloud account (free sandbox) or self-hosted LiveKit server
+- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) (or your own ESP32-S3 board with I2S audio)
+- A small speaker with MX1.25 connector (the board I have has a speaker connected already)
+- ESP-IDF 5.4 or later ([install guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html))
+- A [LiveKit Cloud](https://cloud.livekit.io) account (free tier works) or a self-hosted LiveKit server
 - USB-C cable
+- Python 3 with the `livekit-api` package (`pip install livekit-api`) — for generating tokens
 
 ## Meet the board
 
-![ESP32 Board](res/ESP32-S3-Touch-LCD-1.83-intro.jpg)
+![Waveshare ESP32-S3-Touch-LCD-1.83](res/ESP32-S3-Touch-LCD-1.83-intro.jpg)
 
 | # | Component | Description |
 |---|-----------|-------------|
-| 1 | ESP32-S3R8 | SoC with WiFi and Bluetooth, up to 240 MHz, with onboard 8 MB PSRAM |
-| 2 | AXP2101 | Highly integrated power management IC |
-| 3 | ES8311 | Low-power audio codec IC |
-| 4 | ES7210 | ADC chip for echo cancellation circuits |
-| 5 | MX1.25 speaker header | Non-polarized connector for external speaker |
-| 6 | 1.2 mm lithium battery header | 2-pin connector for 3.7 V lithium battery, supports charging and discharging |
-| 7 | Type-C port | ESP32-S3 USB port for flashing and log output |
-| 8 | 16 MB NOR Flash | For storing data |
-| 9 | Dual microphone array | Microphone input and echo cancellation |
-| 10 | Onboard antenna | 2.4 GHz Wi-Fi (802.11 b/g/n) and Bluetooth 5 (LE) |
-| 11 | Reserved GPIO pads | Available I/O pins for easy expansion |
-| 12 | QMI8658 | 6-axis IMU (3-axis gyroscope + 3-axis accelerometer) |
-| 13 | PCF85063 | RTC chip |
-| 14 | BOOT button | Device startup and functional debugging |
-| 15 | PWR button | Power on/off, supports custom functions |
-| 16 | 1.83" display panel connector | 240×284 ST7789P SPI LCD with CST816D capacitive touch (I2C) |
-| 17 | Speaker amplifier chip | NS4150B class-D amplifier |
-| 18 | TF card slot | MicroSD storage |
+| 1 | ESP32-S3R8 | Dual-core SoC, 240 MHz, 8 MB PSRAM |
+| 2 | AXP2101 | Power management IC (controls codec power rails) |
+| 3 | ES8311 | Audio DAC — drives the speaker |
+| 4 | ES7210 | Audio ADC — captures from the dual-mic array |
+| 5 | MX1.25 speaker header | Connect an external speaker here |
+| 6 | Battery header | 3.7 V lithium battery (optional) |
+| 7 | USB-C port | Flashing and serial monitor |
+| 8 | 16 MB NOR flash | Program and data storage |
+| 9 | Dual microphone array | Two MEMS mics for voice capture and echo cancellation |
+| 10 | Onboard antenna | 2.4 GHz WiFi and Bluetooth 5 LE |
+| 17 | NS4150B amp | Class-D speaker amplifier (needs GPIO enable) |
 
-The ES8311 and ES7210 are the same codec pair used on the ESP32-S3-BOX-3 and Korvo-2 reference boards. Only the GPIO pin assignments differ — which is exactly the problem we need to solve.
+The ES8311 + ES7210 codec pair is the same audio front-end used on the ESP32-S3-BOX-3 and Korvo-2 reference boards — well-supported drivers, proven AEC performance, and plenty of example code to reference. The only difference on this board is the GPIO pin assignments, which is exactly the problem we need to solve.
 
 ## Step 1: Extract pin assignments from the schematic
 
-Download the board [schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83/ESP32-S3-Touch-LCD-1.83-schematic.pdf) from the [Waveshare wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83). The schematic is organized into labeled blocks — the ones we care about are **Codec** (ES8311), **ADC** (ES7210), and **PA & Speaker & MIC**. It also includes a GPIO allocation table that maps every ESP32-S3 pin to its function across all peripherals.
+Download the [board schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83/ESP32-S3-Touch-LCD-1.83-schematic.pdf) from the [Waveshare wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83). We need to find three things: **I2S bus pins**, **I2C bus pins**, and **codec I2C addresses**.
 
-### Reading the Codec block (ES8311)
+### I2S bus — the audio data path
 
-Open the **Codec** section and look at the bottom of the ES8311 (U9). The GPIO assignments are labeled directly on the signal traces:
+Open the **Codec** block in the schematic. The ES8311 (U9) has the I2S signals labeled on its pins:
 
 ![ES8311 Codec Schematic](res/schematic-codec.png)
 
-- `GPIO16` → `I2S_MCLK` → ES8311 pin 2 (MCLK)
-- `GPIO9` → `I2S_SCLK` → ES8311 pin 6 (SCLK)
-- `GPIO45` → `I2S_LRCK` → ES8311 pin 8 (LRCK)
-- `GPIO8` → `I2S_DSDIN` → ES8311 pin 9 (DSDIN — data *into* the DAC for playback)
+- `GPIO16` → `I2S_MCLK` — master clock to both codecs
+- `GPIO9` → `I2S_SCLK` — bit clock
+- `GPIO45` → `I2S_LRCK` — word select (left/right clock)
+- `GPIO8` → `I2S_DSDIN` — serial data *into* the ES8311 DAC (playback)
 
-At the top, the I2C control lines are labeled:
-
-- `GPIO15` → `ESP32_SDA` → ES8311 pin 19 (CDATA)
-- `GPIO14` → `ESP32_SCL` → ES8311 pin 1 (CCLK)
-
-The CE pin is pulled high through R32 (10 kΩ), which sets the ES8311 I2C address to `0x18`.
-
-### Reading the ADC block (ES7210)
-
-Now look at the **ADC** section for the ES7210 (U12):
+Now look at the **ADC** block for the ES7210 (U12):
 
 ![ES7210 ADC Schematic](res/schematic-adc.png)
 
-The ES7210 shares the same I2S bus — `I2S_MCLK`, `I2S_SCLK`, and `I2S_LRCK` connect to pins 5, 9, and 10. The recording data line is:
+The ES7210 shares the same clock lines and adds one more data pin:
 
-- `GPIO10` → `I2S_ASDOUT` → ES7210 pin 11 (SDOUT1/TDMOUT — data *out of* the ADC to the ESP32)
+- `GPIO10` → `I2S_ASDOUT` — serial data *out of* the ES7210 ADC (recording)
 
-The I2C control uses the same bus (`ESP32_SCL`/`ESP32_SDA` on GPIO14/15). The AD0 and AD1 pins are tied to ground, giving an I2C address of `0x40`.
+### I2C bus — codec control
+
+Both codecs are configured over I2C. The schematic shows them on the same bus:
+
+- `GPIO14` → `ESP32_SCL`
+- `GPIO15` → `ESP32_SDA`
+
+This bus is shared with the touch controller, RTC, IMU, and PMU. Each device has a unique address, so they coexist without conflict.
+
+### I2C addresses
+
+The ES8311 CE pin is pulled low → 7-bit address **`0x18`**.
+The ES7210 AD0 and AD1 pins are tied to ground → 7-bit address **`0x40`**.
+
+### Speaker amplifier
+
+The NS4150B class-D amplifier is enabled by `GPIO46` (`PA_CTRL`). If you don't drive this pin high, the speaker stays silent — a common gotcha.
 
 ### Cross-referencing with the GPIO table
 
-The schematic includes a GPIO allocation table that maps every ESP32-S3 pin to its function across all peripherals. This is the fastest way to verify your readings:
+The schematic includes a GPIO allocation table. Use it to verify:
 
 ![GPIO Allocation Table](res/schematic-gpio-table.png)
 
-| ESP32-S3 | Function | Peripheral |
-|----------|----------|------------|
-| GPIO8 | I2S_DSDIN | ES8311 (playback data) |
-| GPIO9 | I2S_SCLK | ES8311/ES7210 (bit clock) |
-| GPIO10 | I2S_ASDOUT | ES7210 (recording data) |
-| GPIO14 | ESP32_SCL | I2C clock (codecs, touch, RTC, IMU) |
-| GPIO15 | ESP32_SDA | I2C data (codecs, touch, RTC, IMU) |
-| GPIO16 | I2S_MCLK | ES8311/ES7210 (master clock) |
-| GPIO45 | I2S_LRCK | ES8311/ES7210 (word select) |
-| GPIO46 | PA_CTRL | Speaker amplifier enable |
-
-Note that GPIO14/15 serve multiple peripherals on the same I2C bus — the touch controller, RTC, IMU, and both audio codecs all share it. Each device has a unique I2C address, so they coexist without conflict.
-
-### Summary of pin assignments
+### Pin summary
 
 **I2S bus:**
 
@@ -100,36 +89,29 @@ Note that GPIO14/15 serve multiple peripherals on the same I2C bus — the touch
 | `I2S_MCLK` | 16 | Out | Master clock to both codecs |
 | `I2S_SCLK` | 9 | Out | Bit clock (BCLK) |
 | `I2S_LRCK` | 45 | Out | Word select (WS) |
-| `I2S_DSDIN` | 8 | Out | Serial data from ESP32 to ES8311 (playback) |
-| `I2S_ASDOUT` | 10 | In | Serial data from ES7210 to ESP32 (recording) |
+| `I2S_DSDIN` | 8 | Out | ESP32 → ES8311 (playback) |
+| `I2S_ASDOUT` | 10 | In | ES7210 → ESP32 (recording) |
 
-**I2C bus:**
+**I2C bus and addresses:**
 
-| Signal | GPIO |
-|--------|------|
-| `ESP32_SCL` | 14 |
-| `ESP32_SDA` | 15 |
+| Signal/Device | GPIO / Address |
+|---------------|----------------|
+| `ESP32_SCL` | GPIO 14 |
+| `ESP32_SDA` | GPIO 15 |
+| ES8311 (DAC) | 7-bit `0x18` / 8-bit `0x30` |
+| ES7210 (ADC) | 7-bit `0x40` / 8-bit `0x80` |
+| AXP2101 (PMU) | 7-bit `0x34` |
+| PA enable | GPIO 46 |
 
-**I2C addresses:**
-
-| Device | Address | How |
-|--------|---------|-----|
-| ES8311 | `0x18` | CE pin pulled high via 10 kΩ |
-| ES7210 | `0x40` | AD0 = AD1 = 0 |
-
-**Speaker amplifier:**
-
-| Signal | GPIO |
-|--------|------|
-| `PA_CTRL` | 46 |
-
-The NS4150B class-D amplifier is enabled when this pin goes high. If you forget to drive this pin, the speaker stays silent — a common gotcha on boards with external PA circuits.
+> **Watch out: 7-bit vs 8-bit I2C addresses.** The `esp_codec_dev` driver expects **8-bit (left-shifted) addresses** in `audio_codec_i2c_cfg_t.addr`. It internally right-shifts by 1 to get the 7-bit address. If you pass the raw 7-bit address from the datasheet (e.g. `0x18`), the driver talks to address `0x0C` and you'll get NACKs. Use the `ES8311_CODEC_DEFAULT_ADDR` (`0x30`) and `ES7210_CODEC_DEFAULT_ADDR` (`0x80`) macros.
 
 ## Step 2: Initialize the hardware
 
-The SDK's reference examples use a `codec_board` component that reads board configs from a text file. That works well for supported boards, but it hides the initialization sequence. When porting to custom hardware, it's more reliable to initialize each peripheral directly.
+The SDK's reference examples use a `codec_board` component that reads board configs from a file. That works for supported boards, but hides the initialization sequence. For custom hardware, it's more reliable to initialize each peripheral directly.
 
-### I2C
+**The order matters: I2C → PMU → I2S → codecs.** The AXP2101 PMU controls the power rail that feeds the codecs. If you skip it, every I2C transaction to the codecs will NACK.
+
+### 2a. I2C bus
 
 ```c
 #define BOARD_I2C_SDA  GPIO_NUM_15
@@ -149,9 +131,44 @@ static esp_err_t init_i2c(void)
 }
 ```
 
-### I2S
+### 2b. AXP2101 PMU — power up the codecs
 
-The ES8311 (playback) uses standard I2S mode. The ES7210 (recording) uses TDM mode with 4 slots — one per microphone channel. Both share the same I2S port but use separate TX and RX channels:
+The AXP2101 (I2C address `0x34`) controls several voltage rails. The ES8311 and ES7210 are powered from **ALDO1** at 3.3 V. We set the voltage and enable the output:
+
+```c
+#define AXP2101_ADDR        0x34
+#define AXP2101_LDO_ONOFF   0x90
+#define AXP2101_ALDO1_VOLT  0x92
+
+static esp_err_t init_pmu(void)
+{
+    i2c_device_config_t pmu_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = AXP2101_ADDR,
+        .scl_speed_hz    = 400000,
+    };
+    i2c_master_bus_add_device(i2c_bus, &pmu_cfg, &pmu_dev);
+
+    // ALDO1 → 3.3 V: (3300 - 500) / 100 = 0x1C
+    pmu_write_reg(AXP2101_ALDO1_VOLT, 0x1C);
+
+    // Read-modify-write: enable ALDO1 (bit 0 of reg 0x90)
+    uint8_t reg = AXP2101_LDO_ONOFF;
+    uint8_t val = 0;
+    i2c_master_transmit_receive(pmu_dev, &reg, 1, &val, 1, 1000);
+    val |= 0x01;
+    pmu_write_reg(AXP2101_LDO_ONOFF, val);
+
+    vTaskDelay(pdMS_TO_TICKS(20));  // let the rail stabilize
+    return ESP_OK;
+}
+```
+
+> **Tip:** Not every board has a PMU gating codec power. But if you see NACKs during codec init on a board with an AXP2101 or similar PMIC, check whether the codec power rail needs to be explicitly enabled.
+
+### 2c. I2S bus
+
+The ES8311 (playback) uses standard I2S. The ES7210 (recording) uses TDM mode with 4 slots — one per microphone channel. Both share the same I2S port:
 
 ```c
 #define BOARD_I2S_MCLK GPIO_NUM_16
@@ -190,26 +207,25 @@ static esp_err_t init_i2s(void)
         .clk_cfg  = I2S_TDM_CLK_DEFAULT_CONFIG(16000),
         .slot_cfg = I2S_TDM_PHILIPS_SLOT_DEFAULT_CONFIG(
                         32, I2S_SLOT_MODE_STEREO, slot_mask),
-        .gpio_cfg = { /* same pins */ },
+        .gpio_cfg = { /* same pins as above */ },
     };
     tdm_cfg.slot_cfg.total_slot = 4;
     i2s_channel_init_tdm_mode(i2s_rx, &tdm_cfg);
 
-    // Enable channels — some codecs need the clock running
-    // during register configuration
     i2s_channel_enable(i2s_tx);
     i2s_channel_enable(i2s_rx);
     return ESP_OK;
 }
 ```
 
-### ES8311 (DAC — speaker output)
+### 2d. ES8311 DAC — speaker output
 
-[datasheet](http://www.everest-semi.com/pdf/ES8311%20PB.pdf)
+The ES8311 handles playback. We pass it the 8-bit I2C address, PA enable pin, and I2S handles:
 
 ```c
 #define BOARD_PA_PIN  GPIO_NUM_46
-#define ES8311_ADDR   0x18
+// 8-bit I2C address for esp_codec_dev (7-bit 0x18 << 1)
+#define ES8311_ADDR   ES8311_CODEC_DEFAULT_ADDR  // 0x30
 
 static esp_err_t init_es8311(void)
 {
@@ -252,12 +268,13 @@ static esp_err_t init_es8311(void)
 }
 ```
 
-### ES7210 (ADC — microphone input)
+### 2e. ES7210 ADC — microphone input
 
-[datasheet](http://www.everest-semi.com/pdf/ES7210%20PB.pdf)
+The ES7210 captures from all 4 TDM microphone channels:
 
 ```c
-#define ES7210_ADDR 0x40
+// 8-bit I2C address for esp_codec_dev (7-bit 0x40 << 1)
+#define ES7210_ADDR ES7210_CODEC_DEFAULT_ADDR  // 0x80
 
 static esp_err_t init_es7210(void)
 {
@@ -294,23 +311,24 @@ static esp_err_t init_es7210(void)
 }
 ```
 
-### Putting it together
+### 2f. Putting it together
 
 ```c
 void board_init(void)
 {
-    init_i2c();
-    init_i2s();
-    init_es8311();
-    init_es7210();
+    init_i2c();      // I2C bus first — everything else needs it
+    init_pmu();      // Power up the codec rails via AXP2101
+    init_i2s();      // Start I2S clocks
+    init_es8311();   // DAC (speaker output)
+    init_es7210();   // ADC (microphone input)
 }
 ```
 
-The full `board.c` is in the [code directory](../code/main/board.c).
+The full [`board.c`](../code/main/board.c) is in the code directory.
 
 ## Step 3: Wire up the media pipeline
 
-With the codec handles ready, the media pipeline is identical to any other LiveKit ESP32 project. The capture system reads from the ES7210 (with AEC enabled), and the render system plays through the ES8311:
+With the codec handles ready, the media pipeline is identical to any other LiveKit ESP32 project. The capture system reads from the ES7210 (with AEC), and the render system plays through the ES8311:
 
 ```c
 int media_init(void)
@@ -338,87 +356,82 @@ int media_init(void)
 
 ## Step 4: Connect to LiveKit
 
-The room connection logic is standard — it doesn't depend on the board at all:
+The room connection logic doesn't depend on the board at all:
 
 ```c
 void app_main(void)
 {
     livekit_system_init();
-    board_init();    // Our custom board init
+    board_init();
     media_init();
 
-    // Network + SNTP
+    // Network + time sync
     lk_example_network_connect();
-
-    // Join a LiveKit room
     join_room();
 }
 ```
 
-## Step 5: Configure, build, and flash
+Once connected, the device stays in the room until you power it off or press the reset button. To keep this example as simple as possible there is no disconnect UI, this is a headless audio endpoint.
 
-This section walks through the full process: getting LiveKit credentials, generating tokens for the ESP32 and for you (the user), wiring the device config, then building and joining the room.
+## Step 5: Configure, build, and flash
 
 ### 5.1 Get your LiveKit credentials
 
-Sign in to [LiveKit Cloud](https://cloud.livekit.io) and open your project’s **API keys** page:
+Sign in to [LiveKit Cloud](https://cloud.livekit.io) and open your project's **Settings > Keys** page:
 
 **https://cloud.livekit.io/projects/p_/settings/keys**
 
-Create or copy an API key and secret. You also need your project’s WebSocket URL (e.g. `wss://your-project.livekit.cloud`). These are the values the device and the token script need to log in and create tokens.
+You need three values:
+- **API Key** (e.g. `APIxxxxxxxxxxxx`)
+- **API Secret**
+- **WebSocket URL** (e.g. `wss://your-project.livekit.cloud`)
 
-### 5.2 Create a local env file and generate tokens
+### 5.2 Generate tokens with the helper script
 
-From the demo repo (e.g. the `livekit-esp-demos` root or the `tools` directory), create an `env` file in the **current directory** with your LiveKit credentials. You can use a file named `./env` or set the same variables in your environment (environment variables override the file).
-
-Create `./env` with:
+Create a file called `env` in the `code/` directory with your credentials:
 
 ```
-LIVEKIT_API_KEY=your-api-key
+LIVEKIT_API_KEY=APIxxxxxxxxxxxx
 LIVEKIT_API_SECRET=your-api-secret
 LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_ROOM=esp32Room
 ```
 
-`LIVEKIT_ROOM` is optional; it defaults to `esp32Room` if omitted.
-
-Then run the token script (from the directory that contains `./env`, or with the vars set in your shell):
+Then run the token script:
 
 ```bash
-python3 tools/make_test_token.py
+cd code
+python3 ../../../tools/make_test_token.py
 ```
 
-The script prints:
+The script prints four things:
+1. **ESP32 token** — paste this into `sdkconfig.defaults`
+2. **User token** — for you to join the same room from a browser
+3. **User join URL** — open this in your browser to talk to the ESP32
+4. **sdkconfig.defaults snippet** — copy-paste block with all the LiveKit config
 
-1. **ESP32 token** — the token the device uses to join the room (identity `"ESP32"`).
-2. **User token** — a token for you to join the same room (identity `"User"`).
-3. **User join URL** — a ready-to-open link:  
-   `https://meet.livekit.io/custom?liveKitUrl=...&token=...`  
-   Open this in a browser to join the room and talk to the ESP32/agent.
-4. **sdkconfig.defaults snippet** — a block you can copy into the firmware’s `sdkconfig.defaults` so the device uses a pre-generated token instead of the sandbox.
-
-If any required variable is missing, the script prints a detailed error and points you back to the [LiveKit Cloud API keys page](https://cloud.livekit.io/projects/p_/settings/keys).
-
-### 5.3 Configure the device (sdkconfig.defaults)
-
-Copy the example config into `sdkconfig.defaults` and set WiFi:
+### 5.3 Configure WiFi and LiveKit
 
 ```bash
 cd code
 cp sdkconfig.defaults.example sdkconfig.defaults
 ```
 
-Edit `sdkconfig.defaults` and set your WiFi SSID and password. For LiveKit, **paste the snippet that `make_test_token.py` printed**: it comments out the sandbox option and fills in the pre-generated token and server URL. The relevant section should look like:
+Edit `sdkconfig.defaults`:
 
-```
-# CONFIG_LK_EXAMPLE_USE_SANDBOX=y
-# CONFIG_LK_EXAMPLE_SANDBOX_ID="your-sandbox-id"
-CONFIG_LK_EXAMPLE_USE_PREGENERATED=y
-CONFIG_LK_EXAMPLE_SERVER_URL="wss://your-project.livekit.cloud"
-CONFIG_LK_EXAMPLE_TOKEN="<the-ESP32-token-from-the-script>"
-```
+1. Set your **WiFi SSID and password** (2.4 GHz only — ESP32s3 doesn't support 5 GHz):
+   ```
+   CONFIG_LK_EXAMPLE_WIFI_SSID="your-wifi-ssid"
+   CONFIG_LK_EXAMPLE_WIFI_PASSWORD="your-wifi-password"
+   ```
 
-Use the **ESP32 token** from the script output (not the User token). `sdkconfig.defaults` is in `.gitignore` so your credentials stay out of version control.
+2. **Paste the LiveKit snippet** from `make_test_token.py` output. The result should look like:
+   ```
+   CONFIG_LK_EXAMPLE_USE_PREGENERATED=y
+   CONFIG_LK_EXAMPLE_SERVER_URL="wss://your-project.livekit.cloud"
+   CONFIG_LK_EXAMPLE_TOKEN="eyJ..."
+   ```
+
+> **Important:** `sdkconfig.defaults` is in `.gitignore` — your credentials stay out of version control. If you edit `sdkconfig.defaults` after already building, delete the generated `sdkconfig` file so ESP-IDF regenerates it: `rm sdkconfig`
 
 ### 5.4 Build and flash
 
@@ -427,36 +440,63 @@ idf.py build
 idf.py -p /dev/ttyACM0 flash monitor
 ```
 
-The board will connect to WiFi and join the LiveKit room using the token you put in `sdkconfig.defaults`.
+Replace `/dev/ttyACM0` with your board's serial port. On macOS it's typically `/dev/cu.usbmodem*`.
 
-### 5.5 Join the room as a user
+You should see the board boot, connect to WiFi, and join the LiveKit room:
 
-Open the **User join URL** that `make_test_token.py` printed (the `https://meet.livekit.io/custom?liveKitUrl=...&token=...` link) in your browser. You’ll join the same room as the ESP32 and can verify two-way audio. No need to use the LiveKit Playground separately — the script gives you a direct meet link.
+```
+I (1023) board: Initializing Waveshare ESP32-S3-Touch-LCD-1.83
+I (1049) board: AXP2101: ALDO1 enabled at 3.3 V (codec power)
+I (1104) ES8311: Work in Slave mode
+I (1114) ES7210: Work in Slave mode
+I (1139) board: Board init complete — ES8311 (playback) + ES7210 (record) ready
+...
+I (3200) livekit_example: Room state changed: CONNECTED
+```
+
+### 5.5 Join from your browser
+
+Open the **User join URL** from the `make_test_token.py` output in your browser. It looks like:
+
+```
+https://meet.livekit.io/custom?liveKitUrl=wss://...&token=eyJ...
+```
+
+You'll join the same room as the ESP32. Speak into your browser mic and hear it through the ESP32 speaker; speak near the ESP32 mics and hear it in your browser.
+
+To end the session, press the reset button or power off the ESP32.
+
+![LiveKit room with ESP32 connected](res/screenshot.jpg)
 
 ## Troubleshooting
 
-**No audio output (speaker silent)**
-- Check that `PA_CTRL` (GPIO 46) is being driven high. The NS4150B amp won't produce output without it. The ES8311 driver handles this via the `pa_pin` field, but only if you pass the correct GPIO.
+**Codec init fails (I2C NACK errors)**
+- **Check the I2C address format.** The `esp_codec_dev` driver expects 8-bit (left-shifted) addresses. If you pass the 7-bit address from the datasheet (e.g. `0x18`), the driver right-shifts it to `0x0C` and talks to the wrong device. Use the `_CODEC_DEFAULT_ADDR` macros.
+- **Check the PMU.** If your board has an AXP2101 or similar PMIC, the codec power rail may need to be enabled first.
+- **Run an I2C bus scan.** Probe every address from `0x03`–`0x77` using `i2c_master_probe()`. This tells you exactly what's on the bus and eliminates guesswork. See the `i2c_bus_scan()` function in [`board.c`](../code/main/board.c).
 
-**Codec init fails (I2C errors)**
-- Verify I2C addresses: ES8311 is `0x18` when CE is high, `0x19` when low. ES7210 is `0x40` with AD0=AD1=0. Check your schematic.
-- Make sure the I2C bus is initialized before the codecs.
+**No audio output (speaker silent)**
+- Check that `PA_CTRL` (GPIO 46) is driven high. The ES8311 driver handles this via `pa_pin`, but only if you pass the correct GPIO.
+- Make sure a speaker is connected to the MX1.25 header.
 
 **No microphone input**
-- The ES7210 uses TDM mode. If you initialize the RX channel in standard mode, you'll get silence or garbled data.
-- Confirm `I2S_ASDOUT` (GPIO 10) is correct — this is the data line from the ES7210 to the ESP32.
+- The ES7210 uses TDM mode. If you initialize the RX channel in standard I2S mode, you'll get silence.
+- Confirm `I2S_ASDOUT` (GPIO 10) is correct — this is the data line *from* the ES7210 *to* the ESP32.
+
+**WiFi won't connect**
+- The ESP32-S3 only supports **2.4 GHz** WiFi. If your router broadcasts a combined 2.4/5 GHz SSID, the device may fail to connect. Try a 2.4 GHz-only SSID.
+- If you edited `sdkconfig.defaults` after already building, delete `sdkconfig` and rebuild: `rm sdkconfig && idf.py build`
 
 **Audio glitches or echo**
+- Make sure PSRAM is enabled and configured for octal mode (`CONFIG_SPIRAM_MODE_OCT=y`).
 - The AEC source expects 4 TDM channels with `channel_mask = 1 | 2`. If your board has fewer mic channels, adjust accordingly.
-- Make sure PSRAM is enabled and configured for octal mode in sdkconfig.
 
 ## Adapting to your own board
 
 The process is the same for any ESP32-S3 board with I2S audio codecs:
 
-1. Get the schematic and identify: I2S pins, I2C pins, codec I2C addresses, PA enable pin
-2. Write a `board.c` that initializes I2C → I2S → codec drivers → `esp_codec_dev` handles
-3. Use `get_playback_handle()` and `get_record_handle()` in your media pipeline
-4. Everything above the board layer (media, room connection, LiveKit SDK) stays the same
+1. **Read the schematic.** Find: I2S pins, I2C pins, codec I2C addresses (remember: 8-bit for `esp_codec_dev`), PA enable pin, and whether a PMU gates codec power.
+2. **Write a `board.c`.** Initialize: I2C → PMU (if needed) → I2S → codec drivers → `esp_codec_dev` handles. Expose `get_playback_handle()` and `get_record_handle()`.
+3. **Everything above the board layer stays the same.** The media pipeline, room connection logic, and LiveKit SDK don't care which board you're on.
 
-The complete source code is in the [`code/`](../code/) directory.
+The complete source code for this example is in the [`code/`](../code/) directory.

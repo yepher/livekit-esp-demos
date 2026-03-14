@@ -15,6 +15,8 @@
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "board";
 
@@ -37,19 +39,28 @@ static const char *TAG = "board";
 // Speaker power amplifier enable
 #define BOARD_PA_PIN   GPIO_NUM_46
 
-// Codec I2C addresses (from schematic: ES8311 CE=high, ES7210 AD0=AD1=0)
-#define ES8311_ADDR    0x18
-#define ES7210_ADDR    0x40
+// AXP2101 PMU — manages power rails for the audio codecs
+#define AXP2101_ADDR        0x34   // 7-bit I2C address (direct ESP-IDF driver)
+#define AXP2101_LDO_ONOFF   0x90   // ALDO1-4 / BLDO1-2 enable bits
+#define AXP2101_ALDO1_VOLT  0x92   // ALDO1 voltage: val = (mV - 500) / 100
+
+// Codec I2C addresses — 8-bit format (left-shifted) as required by esp_codec_dev.
+// The driver internally right-shifts by 1 to obtain the 7-bit address.
+//   ES8311: CE pin LOW → 7-bit 0x18, 8-bit 0x30 (default)
+//   ES7210: AD0=AD1=0  → 7-bit 0x40, 8-bit 0x80 (default)
+#define ES8311_ADDR    ES8311_CODEC_DEFAULT_ADDR   // 0x30
+#define ES7210_ADDR    ES7210_CODEC_DEFAULT_ADDR   // 0x80
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-static i2c_master_bus_handle_t i2c_bus;
-static i2s_chan_handle_t       i2s_tx;
-static i2s_chan_handle_t       i2s_rx;
-static esp_codec_dev_handle_t  play_dev;
-static esp_codec_dev_handle_t  rec_dev;
+static i2c_master_bus_handle_t  i2c_bus;
+static i2c_master_dev_handle_t pmu_dev;
+static i2s_chan_handle_t        i2s_tx;
+static i2s_chan_handle_t        i2s_rx;
+static esp_codec_dev_handle_t   play_dev;
+static esp_codec_dev_handle_t   rec_dev;
 
 // ---------------------------------------------------------------------------
 // Step 1: I2C
@@ -69,7 +80,77 @@ static esp_err_t init_i2c(void)
 }
 
 // ---------------------------------------------------------------------------
-// Step 2: I2S (TDM for ES7210 4-channel input, standard for ES8311 output)
+// I2C bus scan (diagnostic) — probes every 7-bit address to list responding
+// devices.  Useful when bringing up a new board.
+// ---------------------------------------------------------------------------
+
+static void i2c_bus_scan(void)
+{
+    ESP_LOGI(TAG, "Scanning I2C bus …");
+    int found = 0;
+    for (uint8_t addr = 0x03; addr <= 0x77; addr++) {
+        i2c_master_dev_handle_t probe;
+        i2c_device_config_t cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address  = addr,
+            .scl_speed_hz    = 100000,
+        };
+        if (i2c_master_bus_add_device(i2c_bus, &cfg, &probe) == ESP_OK) {
+            esp_err_t err = i2c_master_probe(i2c_bus, addr, 50);
+            if (err == ESP_OK) {
+                ESP_LOGI(TAG, "  0x%02X — ACK", addr);
+                found++;
+            }
+            i2c_master_bus_rm_device(probe);
+        }
+    }
+    ESP_LOGI(TAG, "I2C scan complete — %d device(s) found", found);
+}
+
+// ---------------------------------------------------------------------------
+// Step 2: AXP2101 PMU — ensure the ALDO1 rail (A3V3) that powers the audio
+// codecs is enabled at 3.3 V.  On the Waveshare board the bootloader already
+// enables all rails, but we set them explicitly so the code works standalone.
+// ---------------------------------------------------------------------------
+
+// Helper: write a single AXP2101 register
+static esp_err_t pmu_write_reg(uint8_t reg, uint8_t val)
+{
+    uint8_t cmd[] = { reg, val };
+    return i2c_master_transmit(pmu_dev, cmd, sizeof(cmd), 1000);
+}
+
+static esp_err_t init_pmu(void)
+{
+    // Add the AXP2101 to the I2C bus
+    i2c_device_config_t pmu_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = AXP2101_ADDR,
+        .scl_speed_hz    = 400000,
+    };
+    ESP_RETURN_ON_ERROR(
+        i2c_master_bus_add_device(i2c_bus, &pmu_cfg, &pmu_dev),
+        TAG, "Failed to add AXP2101 to I2C bus");
+
+    // ALDO1 → 3.3 V  (register value: (3300 − 500) / 100 = 0x1C)
+    pmu_write_reg(AXP2101_ALDO1_VOLT, 0x1C);
+
+    // Enable ALDO1 (bit 0 of register 0x90)
+    uint8_t en_val = 0;
+    uint8_t reg = AXP2101_LDO_ONOFF;
+    i2c_master_transmit_receive(pmu_dev, &reg, 1, &en_val, 1, 1000);
+    en_val |= 0x01;
+    pmu_write_reg(AXP2101_LDO_ONOFF, en_val);
+
+    // Allow the power rail to stabilize
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    ESP_LOGI(TAG, "AXP2101: ALDO1 enabled at 3.3 V (codec power)");
+    return ESP_OK;
+}
+
+// ---------------------------------------------------------------------------
+// Step 3: I2S (TDM for ES7210 4-channel input, standard for ES8311 output)
 // ---------------------------------------------------------------------------
 
 static esp_err_t init_i2s(void)
@@ -125,7 +206,7 @@ static esp_err_t init_i2s(void)
 }
 
 // ---------------------------------------------------------------------------
-// Step 3: ES8311 (DAC — speaker output)
+// Step 4: ES8311 (DAC — speaker output)
 // ---------------------------------------------------------------------------
 
 static esp_err_t init_es8311(void)
@@ -178,7 +259,7 @@ static esp_err_t init_es8311(void)
 }
 
 // ---------------------------------------------------------------------------
-// Step 4: ES7210 (ADC — microphone input)
+// Step 5: ES7210 (ADC — microphone input)
 // ---------------------------------------------------------------------------
 
 static esp_err_t init_es7210(void)
@@ -231,6 +312,8 @@ void board_init(void)
     ESP_LOGI(TAG, "Initializing Waveshare ESP32-S3-Touch-LCD-1.83");
 
     ESP_ERROR_CHECK(init_i2c());
+    ESP_ERROR_CHECK(init_pmu());
+    i2c_bus_scan();   // diagnostic — shows every device on the bus
     ESP_ERROR_CHECK(init_i2s());
     ESP_ERROR_CHECK(init_es8311());
     ESP_ERROR_CHECK(init_es7210());

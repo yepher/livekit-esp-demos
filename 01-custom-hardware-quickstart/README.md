@@ -1,65 +1,131 @@
-# 01 – Custom Hardware Quickstart
+# 01 — Custom Hardware Quickstart
 
-Run the LiveKit ESP32 SDK on non-reference and custom boards. Uses the Waveshare as a concrete example and walks through reading board wikis/specs, choosing between official BSPs and manual wiring.
+Run the [LiveKit ESP32 SDK](https://github.com/livekit/client-sdk-esp32) on a board that isn't in the examples folder. This project uses the **Waveshare ESP32-S3-Touch-LCD-1.83** as a concrete example — it's affordable (~$16), easy to source, and uses the same ES8311 + ES7210 codec pair as Espressif's reference boards, making it a great starting point for custom products. The process works for any ESP32-S3 board with I2S audio codecs.
 
-## What You'll Learn
+> **Detailed walkthrough:** See the [blog post](blog/post.md) for the full story — reading schematics, understanding the codec init chain, and troubleshooting I2C issues.
 
-- How to identify the peripherals and pin mappings on a new board
-- Reading a board's wiki, schematic, and datasheet to extract what you need
-- Choosing between an official Espressif BSP and manual peripheral setup
-- Getting a LiveKit session running on hardware that isn't in the examples folder
+## Prerequisites
 
-## Quick Start
+| What | Why |
+|------|-----|
+| [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) | Target board (or substitute your own) |
+| Small speaker with MX1.25 connector | Board has a speaker header but no built-in speaker |
+| [ESP-IDF 5.4+](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html) | Build toolchain |
+| [LiveKit Cloud](https://cloud.livekit.io) account | Room server (free tier works) |
+| Python 3 + `livekit-api` (`pip install livekit-api`) | Token generation |
+| USB-C cable | Flashing and serial monitor |
+
+## Quick start
+
+### 1. Clone and set up credentials
 
 ```bash
-cd code
+cd 01-custom-hardware-quickstart/code
 cp sdkconfig.defaults.example sdkconfig.defaults
-# Edit sdkconfig.defaults with your WiFi and LiveKit credentials
+```
+
+Edit `sdkconfig.defaults` and set your WiFi credentials (must be a **2.4 GHz** network):
+
+```
+CONFIG_LK_EXAMPLE_WIFI_SSID="your-wifi-ssid"
+CONFIG_LK_EXAMPLE_WIFI_PASSWORD="your-wifi-password"
+```
+
+### 2. Generate LiveKit tokens
+
+Create a file called `env` in the `code/` directory:
+
+```
+LIVEKIT_API_KEY=APIxxxxxxxxxxxx
+LIVEKIT_API_SECRET=your-api-secret
+LIVEKIT_URL=wss://your-project.livekit.cloud
+```
+
+Get these values from [LiveKit Cloud > Settings > Keys](https://cloud.livekit.io/projects/p_/settings/keys).
+
+Run the token script:
+
+```bash
+python3 ../../../tools/make_test_token.py
+```
+
+The script prints a **sdkconfig.defaults snippet** — paste it into `sdkconfig.defaults`. It also prints a **User join URL** — save this for step 5.
+
+### 3. Build and flash
+
+```bash
 idf.py build
 idf.py -p /dev/ttyACM0 flash monitor
 ```
 
-## Directory Structure
+> On macOS the port is typically `/dev/cu.usbmodem*` instead of `/dev/ttyACM0`.
+
+### 4. Verify boot
+
+You should see:
+
+```
+I (1023) board: Initializing Waveshare ESP32-S3-Touch-LCD-1.83
+I (1049) board: AXP2101: ALDO1 enabled at 3.3 V (codec power)
+I (1104) ES8311: Work in Slave mode
+I (1114) ES7210: Work in Slave mode
+I (1139) board: Board init complete
+...
+I (3200) livekit_example: Room state changed: CONNECTED
+```
+
+### 5. Join from your browser
+
+Open the **User join URL** from step 2 in your browser. You'll join the same room as the ESP32 — speak into your mic and hear it through the speaker, and vice versa.
+
+To end the session, press the reset button or power off the ESP32.
+
+## Project structure
 
 ```
 01-custom-hardware-quickstart/
+├── README.md
 ├── blog/
-│   ├── post.md       # Blog post
-│   └── res/          # Images and resources
+│   ├── post.md                     # Detailed blog post walkthrough
+│   └── res/                        # Schematic screenshots and photos
 └── code/
-    ├── sdkconfig.defaults.example  # Copy to sdkconfig.defaults and add credentials
-    └── main/                       # Source code
+    ├── CMakeLists.txt
+    ├── partitions.csv
+    ├── sdkconfig.defaults.example  # Template — copy to sdkconfig.defaults
+    └── main/
+        ├── board.c                 # Board init (I2C, PMU, I2S, codecs)
+        ├── board.h
+        ├── media.c                 # Audio capture + render pipeline
+        ├── media.h
+        ├── example.c               # LiveKit room connection
+        ├── example.h
+        ├── main.c                  # Entry point
+        ├── Kconfig.projbuild       # Menuconfig options
+        └── idf_component.yml       # Component dependencies
 ```
 
+## Key files
 
-## Hardware
+| File | What it does |
+|------|-------------|
+| [`board.c`](code/main/board.c) | Initializes I2C bus, AXP2101 PMU, I2S channels, ES8311 (speaker), ES7210 (microphone). Exports `get_playback_handle()` and `get_record_handle()`. |
+| [`media.c`](code/main/media.c) | Builds the audio capture system (with AEC) and render system using the codec handles from `board.c`. |
+| [`example.c`](code/main/example.c) | Creates and connects to a LiveKit room. Publishes microphone audio and subscribes to incoming audio. |
+| [`sdkconfig.defaults.example`](code/sdkconfig.defaults.example) | Template config with WiFi, LiveKit, PSRAM, and flash settings for this board. |
 
-![ESP32 Device](blog/res/esp32_device.jpg)
+## Adapting to your own board
 
-As a reference we will use this ESP32 board.
+1. Read your board's schematic to find: I2S pins, I2C pins, codec addresses, PA enable pin, PMU (if any)
+2. Edit `board.c` with your pin assignments and codec addresses
+3. Everything else (media pipeline, room connection, LiveKit SDK) stays the same
 
-| Component | Part |
-|-----------|------|
-| Board | [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) |
-| Wiki | [Waveshare ESP32-S3-Touch-LCD-1.83 Wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83) |
+See the [blog post](blog/post.md) for a detailed guide on reading schematics and debugging I2C issues.
 
-| # | Component | Description |
-|---|-----------|-------------|
-| 1 | ESP32-S3R8 | SoC with WiFi and Bluetooth, up to 240 MHz, with onboard 8 MB PSRAM |
-| 2 | AXP2101 | Highly integrated power management IC |
-| 3 | ES8311 | Low-power audio codec IC |
-| 4 | ES7210 | ADC chip for echo cancellation circuits |
-| 5 | MX1.25 speaker header | Non-polarized connector for external speaker |
-| 6 | 1.2 mm lithium battery header | 2-pin connector for 3.7 V lithium battery, supports charging and discharging |
-| 7 | Type-C port | ESP32-S3 USB port for flashing and log output |
-| 8 | 16 MB NOR Flash | For storing data |
-| 9 | Dual microphone array | Microphone input and echo cancellation |
-| 10 | Onboard antenna | 2.4 GHz Wi-Fi (802.11 b/g/n) and Bluetooth 5 (LE) |
-| 11 | Reserved GPIO pads | Available I/O pins for easy expansion |
-| 12 | QMI8658 | 6-axis IMU (3-axis gyroscope + 3-axis accelerometer) |
-| 13 | PCF85063 | RTC chip |
-| 14 | BOOT button | Device startup and functional debugging |
-| 15 | PWR button | Power on/off, supports custom functions |
-| 16 | 1.83" display panel connector | 240×284 ST7789P SPI LCD with CST816D capacitive touch (I2C) |
-| 17 | Speaker amplifier chip | NS4150B class-D amplifier |
-| 18 | TF card slot | MicroSD storage |
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| I2C NACK errors during codec init | Use 8-bit I2C addresses (e.g. `0x30` not `0x18`) — see [blog post](blog/post.md#troubleshooting) |
+| Speaker silent | Check PA enable pin (GPIO 46). Ensure speaker is connected to MX1.25 header |
+| WiFi won't connect | ESP32-S3 only supports 2.4 GHz. Delete `sdkconfig` and rebuild after editing `sdkconfig.defaults` |
+| No microphone audio | ES7210 needs TDM mode, not standard I2S |

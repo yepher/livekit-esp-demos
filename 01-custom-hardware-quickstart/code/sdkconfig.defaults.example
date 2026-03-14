@@ -7,20 +7,19 @@ CONFIG_LK_EXAMPLE_WIFI_SSID="your-wifi"
 CONFIG_LK_EXAMPLE_WIFI_PASSWORD="your-password"
 
 # --- LiveKit credentials ---
-# Option A: Sandbox (recommended for getting started).
-#   Get a free Sandbox ID from https://cloud.livekit.io — it looks like
-#   "my-project-abc123". The device will request a short-lived token
-#   automatically each time it connects.
-# Option B: Pre-generated token.
-#   Uncomment the SERVER_URL / TOKEN lines below and comment out the
-#   SANDBOX lines if you are using a self-hosted LiveKit server or
-#   generating tokens from your own backend.
+# Option A: Python helper script (recommended).
+#   Put LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL in ./env (or env vars),
+#   then from this directory run:  python ../../tools/make_test_token.py
+#   Copy the printed "sdkconfig.defaults" block here (it comments out sandbox
+#   and fills SERVER_URL and TOKEN). Use the User join URL to join the room.
+# Option B: Sandbox.
+#   Uncomment USE_SANDBOX and SANDBOX_ID below; the device will request a
+#   short-lived token automatically. Get a Sandbox ID from https://cloud.livekit.io
 # CONFIG_LK_EXAMPLE_USE_SANDBOX=y
 # CONFIG_LK_EXAMPLE_SANDBOX_ID="your-sandbox-id"
-CONFIG_LK_EXAMPLE_USE_PREGENERATED=y
-CONFIG_LK_EXAMPLE_SERVER_URL="wss://chris-test-gk8v3xf8.livekit.cloud"
-CONFIG_LK_EXAMPLE_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ2aWRlbyI6eyJyb29tSm9pbiI6dHJ1ZSwicm9vbSI6ImVzcDMyUm9vbSIsImNhblB1Ymxpc2giOnRydWUsImNhblN1YnNjcmliZSI6dHJ1ZSwiY2FuUHVibGlzaERhdGEiOnRydWV9LCJzdWIiOiJFU1AzMiIsImlzcyI6IkFQSURHdFgyYmtBSGI3bSIsIm5iZiI6MTc3MzUyMjk4OCwiZXhwIjoxNzczNTQ0NTg4fQ.44ADeu2eWw2mXt9IuB0SduedIipkUs6nv2LhIIneLO8"
-
+# CONFIG_LK_EXAMPLE_USE_PREGENERATED=y
+# CONFIG_LK_EXAMPLE_SERVER_URL="wss://your-project.livekit.cloud"
+# CONFIG_LK_EXAMPLE_TOKEN="<paste ESP32 token from make_test_token.py>"
 
 # --- Waveshare ESP32-S3-Touch-LCD-1.83 board settings ---
 CONFIG_LK_EXAMPLE_SPEAKER_VOLUME=85
