@@ -22,3 +22,4 @@ sdkconfig.defaults.old
 # Python (ESP-IDF tooling)
 __pycache__/
 *.py[cod]
+.claude
