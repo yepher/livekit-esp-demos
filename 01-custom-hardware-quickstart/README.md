@@ -9,6 +9,16 @@ Run the LiveKit ESP32 SDK on non-reference and custom boards. Uses the Waveshare
 - Choosing between an official Espressif BSP and manual peripheral setup
 - Getting a LiveKit session running on hardware that isn't in the examples folder
 
+## Quick Start
+
+```bash
+cd code
+cp sdkconfig.defaults.example sdkconfig.defaults
+# Edit sdkconfig.defaults with your WiFi and LiveKit credentials
+idf.py build
+idf.py -p /dev/ttyACM0 flash monitor
+```
+
 ## Directory Structure
 
 ```
@@ -16,7 +26,9 @@ Run the LiveKit ESP32 SDK on non-reference and custom boards. Uses the Waveshare
 ├── blog/
 │   ├── post.md       # Blog post
 │   └── res/          # Images and resources
-└── code/             # Source code
+└── code/
+    ├── sdkconfig.defaults.example  # Copy to sdkconfig.defaults and add credentials
+    └── main/                       # Source code
 ```
 
 

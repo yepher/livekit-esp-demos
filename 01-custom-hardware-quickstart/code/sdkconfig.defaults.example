@@ -1,0 +1,68 @@
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- WiFi credentials ---
+# Set these to your local network SSID and password.
+CONFIG_LK_EXAMPLE_USE_WIFI=y
+CONFIG_LK_EXAMPLE_WIFI_SSID="your-wifi"
+CONFIG_LK_EXAMPLE_WIFI_PASSWORD="your-password"
+
+# --- LiveKit credentials ---
+# Option A: Sandbox (recommended for getting started).
+#   Get a free Sandbox ID from https://cloud.livekit.io — it looks like
+#   "my-project-abc123". The device will request a short-lived token
+#   automatically each time it connects.
+# Option B: Pre-generated token.
+#   Uncomment the SERVER_URL / TOKEN lines below and comment out the
+#   SANDBOX lines if you are using a self-hosted LiveKit server or
+#   generating tokens from your own backend.
+# CONFIG_LK_EXAMPLE_USE_SANDBOX=y
+# CONFIG_LK_EXAMPLE_SANDBOX_ID="your-sandbox-id"
+CONFIG_LK_EXAMPLE_USE_PREGENERATED=y
+CONFIG_LK_EXAMPLE_SERVER_URL="wss://chris-test-gk8v3xf8.livekit.cloud"
+CONFIG_LK_EXAMPLE_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ2aWRlbyI6eyJyb29tSm9pbiI6dHJ1ZSwicm9vbSI6ImVzcDMyUm9vbSIsImNhblB1Ymxpc2giOnRydWUsImNhblN1YnNjcmliZSI6dHJ1ZSwiY2FuUHVibGlzaERhdGEiOnRydWV9LCJzdWIiOiJFU1AzMiIsImlzcyI6IkFQSURHdFgyYmtBSGI3bSIsIm5iZiI6MTc3MzUyMjk4OCwiZXhwIjoxNzczNTQ0NTg4fQ.44ADeu2eWw2mXt9IuB0SduedIipkUs6nv2LhIIneLO8"
+
+
+# --- Waveshare ESP32-S3-Touch-LCD-1.83 board settings ---
+CONFIG_LK_EXAMPLE_SPEAKER_VOLUME=85
+
+# --- Performance ---
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=4096
+
+# --- PSRAM (8 MB octal) ---
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=256
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=8192
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# --- Flash (16 MB QIO) ---
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# --- Cache ---
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+
+# --- TLS / WebRTC ---
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+CONFIG_MBEDTLS_SSL_DTLS_SRTP=y
+CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
+
+# --- WebSocket ---
+CONFIG_ESP_WS_CLIENT_ENABLE_DYNAMIC_BUFFER=y
+CONFIG_ESP_WS_CLIENT_SEPARATE_TX_LOCK=y
+
+# --- SNTP ---
+CONFIG_LWIP_SNTP_MAX_SERVERS=2
+
+# --- Partition table ---
+CONFIG_PARTITION_TABLE_CUSTOM=y
+
+# --- Experimental features (required by some components) ---
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y

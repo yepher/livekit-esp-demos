@@ -357,32 +357,81 @@ void app_main(void)
 
 ## Step 5: Configure, build, and flash
 
-### Set your credentials
+This section walks through the full process: getting LiveKit credentials, generating tokens for the ESP32 and for you (the user), wiring the device config, then building and joining the room.
 
-Run `idf.py menuconfig` and navigate to:
+### 5.1 Get your LiveKit credentials
 
-- **LiveKit Example Utilities** → set WiFi SSID and password
-- **LiveKit Example** → choose **Sandbox token** and enter your Sandbox ID (from [LiveKit Cloud](https://cloud.livekit.io))
+Sign in to [LiveKit Cloud](https://cloud.livekit.io) and open your project’s **API keys** page:
 
-Or add them to `sdkconfig.defaults`:
+**https://cloud.livekit.io/projects/p_/settings/keys**
+
+Create or copy an API key and secret. You also need your project’s WebSocket URL (e.g. `wss://your-project.livekit.cloud`). These are the values the device and the token script need to log in and create tokens.
+
+### 5.2 Create a local env file and generate tokens
+
+From the demo repo (e.g. the `livekit-esp-demos` root or the `tools` directory), create an `env` file in the **current directory** with your LiveKit credentials. You can use a file named `./env` or set the same variables in your environment (environment variables override the file).
+
+Create `./env` with:
 
 ```
-CONFIG_LK_EXAMPLE_USE_WIFI=y
-CONFIG_LK_EXAMPLE_WIFI_SSID="your-wifi"
-CONFIG_LK_EXAMPLE_WIFI_PASSWORD="your-password"
-CONFIG_LK_EXAMPLE_USE_SANDBOX=y
-CONFIG_LK_EXAMPLE_SANDBOX_ID="your-sandbox-id"
+LIVEKIT_API_KEY=your-api-key
+LIVEKIT_API_SECRET=your-api-secret
+LIVEKIT_URL=wss://your-project.livekit.cloud
+LIVEKIT_ROOM=esp32Room
 ```
 
-### Build and flash
+`LIVEKIT_ROOM` is optional; it defaults to `esp32Room` if omitted.
+
+Then run the token script (from the directory that contains `./env`, or with the vars set in your shell):
+
+```bash
+python3 tools/make_test_token.py
+```
+
+The script prints:
+
+1. **ESP32 token** — the token the device uses to join the room (identity `"ESP32"`).
+2. **User token** — a token for you to join the same room (identity `"User"`).
+3. **User join URL** — a ready-to-open link:  
+   `https://meet.livekit.io/custom?liveKitUrl=...&token=...`  
+   Open this in a browser to join the room and talk to the ESP32/agent.
+4. **sdkconfig.defaults snippet** — a block you can copy into the firmware’s `sdkconfig.defaults` so the device uses a pre-generated token instead of the sandbox.
+
+If any required variable is missing, the script prints a detailed error and points you back to the [LiveKit Cloud API keys page](https://cloud.livekit.io/projects/p_/settings/keys).
+
+### 5.3 Configure the device (sdkconfig.defaults)
+
+Copy the example config into `sdkconfig.defaults` and set WiFi:
 
 ```bash
 cd code
+cp sdkconfig.defaults.example sdkconfig.defaults
+```
+
+Edit `sdkconfig.defaults` and set your WiFi SSID and password. For LiveKit, **paste the snippet that `make_test_token.py` printed**: it comments out the sandbox option and fills in the pre-generated token and server URL. The relevant section should look like:
+
+```
+# CONFIG_LK_EXAMPLE_USE_SANDBOX=y
+# CONFIG_LK_EXAMPLE_SANDBOX_ID="your-sandbox-id"
+CONFIG_LK_EXAMPLE_USE_PREGENERATED=y
+CONFIG_LK_EXAMPLE_SERVER_URL="wss://your-project.livekit.cloud"
+CONFIG_LK_EXAMPLE_TOKEN="<the-ESP32-token-from-the-script>"
+```
+
+Use the **ESP32 token** from the script output (not the User token). `sdkconfig.defaults` is in `.gitignore` so your credentials stay out of version control.
+
+### 5.4 Build and flash
+
+```bash
 idf.py build
 idf.py -p /dev/ttyACM0 flash monitor
 ```
 
-You should see the board connect to WiFi, obtain a token from the sandbox server, and join a LiveKit room. Open the [LiveKit Playground](https://cloud.livekit.io/playground) in a browser to join the same room and verify two-way audio.
+The board will connect to WiFi and join the LiveKit room using the token you put in `sdkconfig.defaults`.
+
+### 5.5 Join the room as a user
+
+Open the **User join URL** that `make_test_token.py` printed (the `https://meet.livekit.io/custom?liveKitUrl=...&token=...` link) in your browser. You’ll join the same room as the ESP32 and can verify two-way audio. No need to use the LiveKit Playground separately — the script gives you a direct meet link.
 
 ## Troubleshooting
 
