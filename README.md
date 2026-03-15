@@ -22,7 +22,7 @@ Source code examples for the LiveKit ESP32 SDK blog post series. Each directory 
 
 | # | Directory | Description |
 |---|-----------|-------------|
-| 7 | [07-wake-word-hey-livekit](./07-wake-word-hey-livekit) | On-device wake word detection to trigger a LiveKit WebRTC session. Documents the journey from the stock "Hi ESP" model to a custom "Hey LiveKit" phrase using WakeNet9, including training data and model constraints. |
+| 7 | [07-wake-word-hey-livekit](./07-wake-word-hey-livekit) | On-device wake word detection to trigger a LiveKit WebRTC session. Uses key word spotting (KWS) to listen for a custom phrase and automatically connect to a LiveKit room when detected. |
 
 ## Roadmap / Advanced
 
