@@ -29,4 +29,4 @@ Source code examples for the LiveKit ESP32 SDK blog post series. Each directory 
 | # | Directory | Description |
 |---|-----------|-------------|
 | 8 | [08-data-packets-and-tracks](./08-data-packets-and-tracks) | Sending structured data over LiveKit from an ESP32. Covers what is available today with data packets and the migration path to data tracks once they ship in the ESP SDK. |
-| 9 | [09-livekit-sensor-bridge](./09-livekit-sensor-bridge) | Publish device and sensor data (I2C, etc.) over LiveKit. An architectural concept post with early implementation notes, designed to invite community experimentation. |
+| 9 | [09-livekit-modem-sensor-bridge](./09-livekit-modem-sensor-bridge) | Use an ESP32 as a drop-in LiveKit modem — a self-contained module that handles WiFi, WebRTC, and the LiveKit protocol so any hardware project can send and receive audio, data, and sensor readings over LiveKit. Connect your project's MCU over UART/I2C/SPI and let it handle the cloud connectivity. |
