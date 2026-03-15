@@ -1,0 +1,17 @@
+menu "Captive Portal"
+
+    config PORTAL_AP_CHANNEL
+        int "Soft-AP WiFi channel"
+        default 1
+        range 1 13
+        help
+            WiFi channel for the configuration AP.
+
+    config PORTAL_AP_MAX_CONNECTIONS
+        int "Maximum AP connections"
+        default 4
+        range 1 10
+        help
+            Maximum number of simultaneous connections to the config AP.
+
+endmenu
