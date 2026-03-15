@@ -1,0 +1,5 @@
+dependencies:
+  idf: ">=5.4"
+  livekit/livekit: "0.3.6"
+  waveshare/esp32_s3_touch_lcd_1_83: "*"
+  espressif/cJSON: "^1.0.0"
