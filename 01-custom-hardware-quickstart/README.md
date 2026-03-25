@@ -1,6 +1,6 @@
 # 01 — Custom Hardware Quickstart
 
-Run the [LiveKit ESP32 SDK](https://github.com/livekit/client-sdk-esp32) on a board that isn't in the examples folder. This project uses the **Waveshare ESP32-S3-Touch-LCD-1.83** as a concrete example — it's affordable (~$16), easy to source, and uses the same ES8311 + ES7210 codec pair as Espressif's reference boards, making it a great starting point for custom products. The process works for any ESP32-S3 board with I2S audio codecs.
+Build a hardware frontend for [LiveKit Agents](https://docs.livekit.io/agents/) using the [LiveKit ESP32 SDK](https://github.com/livekit/client-sdk-esp32) on a board that isn't in the examples folder. This project uses the **Waveshare ESP32-S3-Touch-LCD-1.83** as a concrete example — it's affordable (~$16), easy to source, and uses the same ES8311 + ES7210 codec pair as Espressif's reference boards, making it a great starting point for custom products. The process works for any ESP32-S3 board with I2S audio codecs.
 
 > **Detailed walkthrough:** See the [blog post](blog/post.md) for the full story — reading schematics, understanding the codec init chain, and troubleshooting I2C issues.
 
@@ -46,7 +46,7 @@ Get these values from [LiveKit Cloud > Settings > Keys](https://cloud.livekit.io
 Run the token script:
 
 ```bash
-python3 ../../../tools/make_test_token.py
+python3 ../../tools/make_test_token.py
 ```
 
 The script prints a **sdkconfig.defaults snippet** — paste it into `sdkconfig.defaults`. It also prints a **User join URL** — save this for step 5.
@@ -74,9 +74,13 @@ I (1139) board: Board init complete
 I (3200) livekit_example: Room state changed: CONNECTED
 ```
 
-### 5. Join from your browser
+### 5. Test from your browser
 
 Open the **User join URL** from step 2 in your browser. You'll join the same room as the ESP32 — speak into your mic and hear it through the speaker, and vice versa.
+
+### 6. Connect an agent (optional)
+
+Any [LiveKit Agent](https://docs.livekit.io/agents/quickstarts/voice-agent/) that joins the same room will automatically exchange audio with the ESP32. Follow the Voice Agent Quickstart to get an agent running — no changes needed on the device side.
 
 To end the session, press the reset button or power off the ESP32.
 

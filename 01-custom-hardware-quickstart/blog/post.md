@@ -1,8 +1,14 @@
 # Running the LiveKit ESP32 SDK on Custom Hardware
 
-The LiveKit ESP32 SDK ships with [examples](https://components.espressif.com/components/livekit/livekit/versions/0.3.6/examples) for reference boards like the ESP32-S3-BOX-3 and ESP-Korvo-2. But if you're building a product on your own hardware — or evaluating on a dev board that isn't in the examples — you need to adapt the SDK to your pin configuration and audio codecs.
+The ESP32 is one of the most accessible ways to build a hardware frontend for [LiveKit Agents](https://docs.livekit.io/agents/). An ESP32-S3 with a microphone and speaker can join a LiveKit room, stream audio to a cloud-hosted agent, and play back the agent's response — all over WiFi with sub-100ms transport latency.
 
-This post walks through the full process: read the schematic, map the pins, initialize the audio hardware, and get a two-way LiveKit audio session running. We use the [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) as a concrete example. We picked this board because it's affordable (~$16), widely available, and uses the ES8311 + ES7210 codec pair — the same audio front-end found on Espressif's own reference boards. Its compact form factor and battery header also make it a good candidate for embedding in your own product enclosure. The board has a published BSP, but we configure everything manually to show how it works on *any* board.
+![LiveKit Agent Architecture](res/livekit-agent-overview.png)
+
+In the diagram above, the **USER** box represents any LiveKit client — a browser, a mobile app, a phone call, or an ESP32. The ESP32 is just another client: it connects to a LiveKit room the same way a browser would, and any agent on the other side of that room can send and receive audio without knowing what kind of device it's talking to.
+
+The [LiveKit ESP32 SDK](https://components.espressif.com/components/livekit/livekit) ships with [examples](https://components.espressif.com/components/livekit/livekit/examples) for reference boards like the ESP32-S3-BOX-3 and ESP-Korvo-2. But if you're building a product on your own hardware — or evaluating on a dev board that isn't in the examples — you need to adapt the SDK to your pin configuration and audio codecs.
+
+This post walks through the full process: read the schematic, map the pins, initialize the audio hardware, and get the ESP32 connected to a LiveKit room where it can talk to an agent (or any other participant). We use the [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) as a concrete example. We picked this board because it's affordable (~$16), widely available, and uses the ES8311 + ES7210 codec pair — the same audio front-end found on Espressif's own reference boards. Its compact form factor and battery header also make it a good candidate for embedding in your own product enclosure. The board has a published BSP, but we configure everything manually to show how it works on *any* board.
 
 ## What you'll need
 
@@ -30,6 +36,8 @@ This post walks through the full process: read the schematic, map the pins, init
 | 9 | Dual microphone array | Two MEMS mics for voice capture and echo cancellation |
 | 10 | Onboard antenna | 2.4 GHz WiFi and Bluetooth 5 LE |
 | 17 | NS4150B amp | Class-D speaker amplifier (needs GPIO enable) |
+
+> Callout numbers match the photo above. Components not listed (11-16, 18) are for the LCD, touch controller, TF card slot, and other peripherals not needed for audio.
 
 The ES8311 + ES7210 codec pair is the same audio front-end used on the ESP32-S3-BOX-3 and Korvo-2 reference boards — well-supported drivers, proven AEC performance, and plenty of example code to reference. The only difference on this board is the GPIO pin assignments, which is exactly the problem we need to solve.
 
@@ -318,6 +326,7 @@ void board_init(void)
 {
     init_i2c();      // I2C bus first — everything else needs it
     init_pmu();      // Power up the codec rails via AXP2101
+    i2c_bus_scan();  // Diagnostic — list every device on the bus
     init_i2s();      // Start I2S clocks
     init_es8311();   // DAC (speaker output)
     init_es7210();   // ADC (microphone input)
@@ -365,9 +374,14 @@ void app_main(void)
     board_init();
     media_init();
 
-    // Network + time sync
-    lk_example_network_connect();
-    join_room();
+    // SNTP time sync (required for TLS certificate validation)
+    esp_sntp_config_t sntp_config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(
+        2, ESP_SNTP_SERVER_LIST("time.google.com", "pool.ntp.org"));
+    esp_netif_sntp_init(&sntp_config);
+
+    if (lk_example_network_connect()) {
+        join_room();
+    }
 }
 ```
 
@@ -400,7 +414,7 @@ Then run the token script:
 
 ```bash
 cd code
-python3 ../../../tools/make_test_token.py
+python3 ../../tools/make_test_token.py
 ```
 
 The script prints four things:
@@ -454,7 +468,7 @@ I (1139) board: Board init complete — ES8311 (playback) + ES7210 (record) read
 I (3200) livekit_example: Room state changed: CONNECTED
 ```
 
-### 5.5 Join from your browser
+### 5.5 Test with your browser
 
 Open the **User join URL** from the `make_test_token.py` output in your browser. It looks like:
 
@@ -462,11 +476,19 @@ Open the **User join URL** from the `make_test_token.py` output in your browser.
 https://meet.livekit.io/custom?liveKitUrl=wss://...&token=eyJ...
 ```
 
-You'll join the same room as the ESP32. Speak into your browser mic and hear it through the ESP32 speaker; speak near the ESP32 mics and hear it in your browser.
-
-To end the session, press the reset button or power off the ESP32.
+You'll join the same room as the ESP32. Speak into your browser mic and hear it through the ESP32 speaker; speak near the ESP32 mics and hear it in your browser. This confirms the audio pipeline is working end-to-end.
 
 ![LiveKit room with ESP32 connected](res/screenshot.jpg)
+
+### 5.6 Connect an agent
+
+The browser test proves the hardware works, but the real goal is to have the ESP32 talk to an **agent**. Any LiveKit agent that joins the same room will automatically exchange audio with the ESP32 — no changes needed on the device side.
+
+To get started quickly, follow the [Voice Agent Quickstart](https://docs.livekit.io/agents/quickstarts/voice-agent/) to create a Python agent. When you run the agent and have it join the same room, it will receive the ESP32's microphone audio, process it through an LLM, and stream the response back to the speaker.
+
+The ESP32 doesn't know or care whether it's talking to a browser, a phone, or an agent — it's just another participant in the room. This is the key benefit of the LiveKit architecture: the hardware frontend and the agent backend are completely decoupled.
+
+To end the session, press the reset button or power off the ESP32.
 
 ## Troubleshooting
 
@@ -497,6 +519,15 @@ The process is the same for any ESP32-S3 board with I2S audio codecs:
 
 1. **Read the schematic.** Find: I2S pins, I2C pins, codec I2C addresses (remember: 8-bit for `esp_codec_dev`), PA enable pin, and whether a PMU gates codec power.
 2. **Write a `board.c`.** Initialize: I2C → PMU (if needed) → I2S → codec drivers → `esp_codec_dev` handles. Expose `get_playback_handle()` and `get_record_handle()`.
-3. **Everything above the board layer stays the same.** The media pipeline, room connection logic, and LiveKit SDK don't care which board you're on.
+3. **Everything above the board layer stays the same.** The media pipeline, room connection logic, and LiveKit SDK don't care which board you're on — and neither does the agent on the other end.
 
 The complete source code for this example is in the [`code/`](../code/) directory.
+
+## What's next
+
+This post covered the hardware side — getting audio in and out of the ESP32 over LiveKit. The rest of this series builds on this foundation:
+
+- **[02 — BSP Deep Dive](../../02-bsp-deep-dive/)** — Encapsulate the board init into a reusable BSP component
+- **[04 — Captive Portal Provisioning](../../04-captive-portal-provisioning/)** — Configure WiFi and LiveKit credentials without recompiling
+- **[05 — Walkie-Talkie (Push-to-Talk)](../../05-walkie-talkie-ptt/)** — Add push-to-talk for half-duplex voice
+- **[06 — AEC Echo Cancellation](../../06-aec-echo-cancellation/)** — Deep dive into acoustic echo cancellation tuning
