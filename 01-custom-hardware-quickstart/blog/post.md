@@ -1,23 +1,23 @@
-# Running the LiveKit ESP32 SDK on Custom Hardware
+# Building a voice agent frontend on custom ESP32 hardware
 
 The ESP32 is one of the most accessible ways to build a hardware frontend for [LiveKit Agents](https://docs.livekit.io/agents/). An ESP32-S3 with a microphone and speaker can join a LiveKit room, stream audio to a cloud-hosted agent, and play back the agent's response — all over WiFi with sub-100ms transport latency.
 
 ![LiveKit Agent Architecture](res/livekit-agent-overview.png)
 
-In the diagram above, the **USER** box represents any LiveKit client — a browser, a mobile app, a phone call, or an ESP32. The ESP32 is just another client: it connects to a LiveKit room the same way a browser would, and any agent on the other side of that room can send and receive audio without knowing what kind of device it's talking to.
+In the diagram above, the **USER** box represents any LiveKit client — a browser, a mobile app, a phone call, or an **ESP32**. Your ESP32 is just another client: it connects to a LiveKit room the same way a web browser or mobile app would. The agent on the other side of that room sends and receives audio without knowing (or caring) what kind of device it's talking to. This means you can build a dedicated hardware voice interface for any LiveKit agent — a smart speaker, a robot, an intercom — using the same agent backend you'd use for a web app.
 
 The [LiveKit ESP32 SDK](https://components.espressif.com/components/livekit/livekit) ships with [examples](https://components.espressif.com/components/livekit/livekit/examples) for reference boards like the ESP32-S3-BOX-3 and ESP-Korvo-2. But if you're building a product on your own hardware — or evaluating on a dev board that isn't in the examples — you need to adapt the SDK to your pin configuration and audio codecs.
 
-This post walks through the full process: read the schematic, map the pins, initialize the audio hardware, and get the ESP32 connected to a LiveKit room where it can talk to an agent (or any other participant). We use the [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) as a concrete example. We picked this board because it's affordable (~$16), widely available, and uses the ES8311 + ES7210 codec pair — the same audio front-end found on Espressif's own reference boards. Its compact form factor and battery header also make it a good candidate for embedding in your own product enclosure. The board has a published BSP, but we configure everything manually to show how it works on *any* board.
+This post walks through the full process: read the schematic, map the pins, initialize the audio hardware, and get the ESP32 connected to a LiveKit room where it can talk to an agent. The [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) serves as a concrete example. It's affordable (~$16), widely available, and uses the ES8311 + ES7210 codec pair — the same audio front-end found on Espressif's own reference boards. Its compact form factor and battery header also make it a good candidate for embedding in your own product enclosure. The board has a published BSP, but you'll configure everything manually here to see how it works on *any* board.
 
 ## What you'll need
 
-- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) (or your own ESP32-S3 board with I2S audio)
-- A small speaker with MX1.25 connector (the board I have has a speaker connected already)
-- ESP-IDF 5.4 or later ([install guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html))
-- A [LiveKit Cloud](https://cloud.livekit.io) account (free tier works) or a self-hosted LiveKit server
-- USB-C cable
-- Python 3 with the `livekit-api` package (`pip install livekit-api`) — for generating tokens
+- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm) (or your own ESP32-S3 board with I2S audio).
+- A small speaker with MX1.25 connector (the board used here has a speaker connected already).
+- ESP-IDF 5.4 or later ([install guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html)).
+- A [LiveKit Cloud](https://cloud.livekit.io) account (free tier works) or a self-hosted LiveKit server.
+- USB-C cable.
+- Python 3 with the `livekit-api` package (`pip install livekit-api`) — for generating tokens.
 
 ## Meet the board
 
@@ -39,11 +39,11 @@ This post walks through the full process: read the schematic, map the pins, init
 
 > Callout numbers match the photo above. Components not listed (11-16, 18) are for the LCD, touch controller, TF card slot, and other peripherals not needed for audio.
 
-The ES8311 + ES7210 codec pair is the same audio front-end used on the ESP32-S3-BOX-3 and Korvo-2 reference boards — well-supported drivers, proven AEC performance, and plenty of example code to reference. The only difference on this board is the GPIO pin assignments, which is exactly the problem we need to solve.
+The ES8311 + ES7210 codec pair is the same audio front-end used on the ESP32-S3-BOX-3 and Korvo-2 reference boards — well-supported drivers, proven AEC performance, and plenty of example code to reference. The only difference on this board is the GPIO pin assignments, which is exactly the problem you need to solve.
 
 ## Step 1: Extract pin assignments from the schematic
 
-Download the [board schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83/ESP32-S3-Touch-LCD-1.83-schematic.pdf) from the [Waveshare wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83). We need to find three things: **I2S bus pins**, **I2C bus pins**, and **codec I2C addresses**.
+Download the [board schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83/ESP32-S3-Touch-LCD-1.83-schematic.pdf) from the [Waveshare wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83). You need to find three things: **I2S bus pins**, **I2C bus pins**, and **codec I2C addresses**.
 
 ### I2S bus — the audio data path
 
@@ -66,7 +66,7 @@ The ES7210 shares the same clock lines and adds one more data pin:
 
 ### I2C bus — codec control
 
-Both codecs are configured over I2C. The schematic shows them on the same bus:
+Both codecs are configured over I2C. The schematic shows them sharing a bus:
 
 - `GPIO14` → `ESP32_SCL`
 - `GPIO15` → `ESP32_SDA`
@@ -115,7 +115,7 @@ The schematic includes a GPIO allocation table. Use it to verify:
 
 ## Step 2: Initialize the hardware
 
-The SDK's reference examples use a `codec_board` component that reads board configs from a file. That works for supported boards, but hides the initialization sequence. For custom hardware, it's more reliable to initialize each peripheral directly.
+The SDK's reference examples use a `codec_board` component that reads board configs from a file. That works for supported boards but hides the initialization sequence. For custom hardware, it's more reliable to initialize each peripheral directly.
 
 **The order matters: I2C → PMU → I2S → codecs.** The AXP2101 PMU controls the power rail that feeds the codecs. If you skip it, every I2C transaction to the codecs will NACK.
 
@@ -141,7 +141,7 @@ static esp_err_t init_i2c(void)
 
 ### 2b. AXP2101 PMU — power up the codecs
 
-The AXP2101 (I2C address `0x34`) controls several voltage rails. The ES8311 and ES7210 are powered from **ALDO1** at 3.3 V. We set the voltage and enable the output:
+The AXP2101 (I2C address `0x34`) controls several voltage rails. The ES8311 and ES7210 are powered from **ALDO1** at 3.3 V. Set the voltage and enable the output:
 
 ```c
 #define AXP2101_ADDR        0x34
@@ -228,7 +228,7 @@ static esp_err_t init_i2s(void)
 
 ### 2d. ES8311 DAC — speaker output
 
-The ES8311 handles playback. We pass it the 8-bit I2C address, PA enable pin, and I2S handles:
+The ES8311 handles playback. Pass it the 8-bit I2C address, PA enable pin, and I2S handles:
 
 ```c
 #define BOARD_PA_PIN  GPIO_NUM_46
@@ -337,7 +337,7 @@ The full [`board.c`](../code/main/board.c) is in the code directory.
 
 ## Step 3: Wire up the media pipeline
 
-With the codec handles ready, the media pipeline is identical to any other LiveKit ESP32 project. The capture system reads from the ES7210 (with AEC), and the render system plays through the ES8311:
+With the codec handles ready, the media pipeline is identical to any other LiveKit ESP32 project. The capture path reads from the ES7210 (with AEC), and the render path plays through the ES8311:
 
 ```c
 int media_init(void)
@@ -385,7 +385,7 @@ void app_main(void)
 }
 ```
 
-Once connected, the device stays in the room until you power it off or press the reset button. To keep this example as simple as possible there is no disconnect UI, this is a headless audio endpoint.
+Once connected, the device stays in the room until you power it off or press the reset button. To keep this example simple, there's no disconnect UI — it's a headless audio endpoint.
 
 ## Step 5: Configure, build, and flash
 
@@ -480,13 +480,13 @@ You'll join the same room as the ESP32. Speak into your browser mic and hear it 
 
 ![LiveKit room with ESP32 connected](res/screenshot.jpg)
 
-### 5.6 Connect an agent
+### 5.6 Connect to a voice agent
 
-The browser test proves the hardware works, but the real goal is to have the ESP32 talk to an **agent**. Any LiveKit agent that joins the same room will automatically exchange audio with the ESP32 — no changes needed on the device side.
+The browser test proves the hardware works, but the real goal is to have your ESP32 talk to an **agent**. Any LiveKit agent that joins the same room automatically exchanges audio with the ESP32 — no changes needed on the device side.
 
-To get started quickly, follow the [Voice Agent Quickstart](https://docs.livekit.io/agents/quickstarts/voice-agent/) to create a Python agent. When you run the agent and have it join the same room, it will receive the ESP32's microphone audio, process it through an LLM, and stream the response back to the speaker.
+Follow the [Voice Agent Quickstart](https://docs.livekit.io/agents/quickstarts/voice-agent/) to create a Python agent. When you run it and point it at the same room, it receives the ESP32's microphone audio, processes it through an LLM, and streams the response back to the speaker. Your ESP32 is now a dedicated hardware frontend for that agent — a smart speaker, a voice-controlled robot, or whatever you're building.
 
-The ESP32 doesn't know or care whether it's talking to a browser, a phone, or an agent — it's just another participant in the room. This is the key benefit of the LiveKit architecture: the hardware frontend and the agent backend are completely decoupled.
+Because the ESP32 is just another participant in the room, you can swap agents, add more participants, or change the agent's behavior without touching the firmware. The hardware frontend and the agent backend are completely decoupled.
 
 To end the session, press the reset button or power off the ESP32.
 
@@ -517,15 +517,15 @@ To end the session, press the reset button or power off the ESP32.
 
 The process is the same for any ESP32-S3 board with I2S audio codecs:
 
-1. **Read the schematic.** Find: I2S pins, I2C pins, codec I2C addresses (remember: 8-bit for `esp_codec_dev`), PA enable pin, and whether a PMU gates codec power.
-2. **Write a `board.c`.** Initialize: I2C → PMU (if needed) → I2S → codec drivers → `esp_codec_dev` handles. Expose `get_playback_handle()` and `get_record_handle()`.
+1. **Read the schematic.** Find the I2S pins, I2C pins, codec I2C addresses (remember: 8-bit for `esp_codec_dev`), PA enable pin, and whether a PMU gates codec power.
+2. **Write a `board.c`.** Initialize in order: I2C → PMU (if needed) → I2S → codec drivers → `esp_codec_dev` handles. Expose `get_playback_handle()` and `get_record_handle()`.
 3. **Everything above the board layer stays the same.** The media pipeline, room connection logic, and LiveKit SDK don't care which board you're on — and neither does the agent on the other end.
 
 The complete source code for this example is in the [`code/`](../code/) directory.
 
 ## What's next
 
-This post covered the hardware side — getting audio in and out of the ESP32 over LiveKit. The rest of this series builds on this foundation:
+This post covered the hardware side — getting audio in and out of your ESP32 and connecting it to a LiveKit agent. The rest of the series builds on this foundation:
 
 - **[02 — BSP Deep Dive](../../02-bsp-deep-dive/)** — Encapsulate the board init into a reusable BSP component
 - **[04 — Captive Portal Provisioning](../../04-captive-portal-provisioning/)** — Configure WiFi and LiveKit credentials without recompiling
