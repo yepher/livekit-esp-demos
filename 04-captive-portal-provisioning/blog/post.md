@@ -6,7 +6,7 @@ That's fine for development, but it's a dead end for anything else.
 
 This post replaces all of that with a **captive portal** — the same flow you've used to set up consumer WiFi gadgets. On first boot (or after a factory reset), the device starts its own WiFi access point. Connect from a phone or laptop, the browser auto-opens a setup page, you fill in credentials, and the device reboots into normal operation. No toolchain, no recompilation, no serial console.
 
-We also add **on-device JWT generation**. Instead of pre-generating tokens that expire, the device takes an API key and API secret and mints a fresh access token every boot. Tokens are never stale, and you never need to recompile to refresh one.
+This post also adds **on-device JWT generation**. Instead of pre-generating tokens that expire, the device takes an API key and API secret and mints a fresh access token every boot. Tokens are never stale, and you never need to recompile to refresh one.
 
 An optional **SD card `env` file** lets you pre-fill the form for fleet provisioning — load an SD card with credentials, insert it, and the portal form is already populated when the user opens it.
 
@@ -18,12 +18,12 @@ The code is in [`04-captive-portal-provisioning/code/`](../code/).
 
 Same hardware and tools as Posts 01–02:
 
-- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm)
-- Small speaker with MX1.25 connector
-- ESP-IDF 5.4 or later ([install guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html))
-- [LiveKit Cloud](https://cloud.livekit.io) account (free tier works)
-- USB-C cable
-- **Optional**: MicroSD card with an `env` file (details in Part 4)
+- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm).
+- Small speaker with MX1.25 connector.
+- ESP-IDF 5.4 or later ([install guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html)).
+- [LiveKit Cloud](https://cloud.livekit.io) account (free tier works).
+- USB-C cable.
+- **Optional**: MicroSD card with an `env` file (details in Part 4).
 
 What you **don't** need: `make_test_token.py`, pre-generated tokens, or WiFi credentials in your build config. The portal handles all of that at runtime.
 
@@ -138,11 +138,11 @@ esp_err_t portal_env_load(const char *base_path, portal_config_t *cfg);
 
 ### Key design decisions
 
-**No global state.** The hey_livekit project this component was adapted from uses a global `g_ctx` struct for shared state. The captive portal component eliminates that dependency — all state is internal. This means you can use it in any project without adapting your application's architecture.
+**No global state.** The hey_livekit project this component was adapted from uses a global `g_ctx` struct for shared state. The captive portal component eliminates that dependency — all state is internal. You can use it in any project without adapting your application's architecture.
 
-**Parameterized AP name.** Instead of hardcoding the AP SSID, `portal_start()` takes a prefix. This lets different projects have different device names on the network.
+**Parameterized AP name.** Instead of hardcoding the AP SSID, `portal_start()` takes a prefix. Different projects get different device names on the network.
 
-**Optional SD card.** The `sd_mount_path` parameter is nullable. If you pass `NULL`, the env file feature is silently disabled. If you pass a path, the `/status` endpoint overlays env file defaults onto the form fields.
+**Optional SD card.** The `sd_mount_path` parameter is nullable. Pass `NULL` and the env file feature is silently disabled. Pass a path and the `/status` endpoint overlays env file defaults onto the form fields.
 
 ### Using the component in your own project
 
@@ -211,7 +211,7 @@ Compare this to Post 02's `main.c`, which called `lk_example_network_connect()` 
 
 ### On-device JWT generation
 
-Posts 01–02 used pre-generated tokens that were pasted into `sdkconfig.defaults`. These tokens have a fixed expiration time — when they expire, you recompile. That's the opposite of what we want for a device that should work unattended.
+Posts 01–02 used pre-generated tokens pasted into `sdkconfig.defaults`. These tokens have a fixed expiration time — when they expire, you recompile. That's the opposite of what you want for a device that should work unattended.
 
 The JWT generator (`jwt_generator.c`) takes an API key and API secret and produces a signed access token on the device:
 
@@ -234,9 +234,9 @@ Under the hood:
 
 The token includes standard LiveKit video grants (room join, publish, subscribe, publish data). The device mints a fresh token every boot, so there's nothing to expire or refresh.
 
-**Important:** JWT generation requires accurate system time for the `iat`/`exp`/`nbf` claims. That's why we sync NTP before generating the token.
+**Important:** JWT generation requires accurate system time for the `iat`/`exp`/`nbf` claims. That's why the boot flow syncs NTP before generating the token.
 
-### What we removed
+### What's removed
 
 Compared to Posts 01–02, this project drops two LiveKit helper components:
 
@@ -285,11 +285,11 @@ DEVICE_IDENTITY="office-speaker"
 Insert the SD card and boot the device. When the captive portal opens, the form fields are **pre-filled** with the env file values. The user just reviews and clicks "Save & Reboot."
 
 Key features of the env file parser:
-- **Multiple filenames**: Tries `env` and `env.txt` (the `.txt` variant is for Windows users who can't create extensionless files)
-- **Comments**: Lines starting with `#` are ignored
-- **Quotes**: Values can be optionally wrapped in single or double quotes
-- **`<RANDOM4>` placeholder**: In `LIVEKIT_ROOM`, `<RANDOM4>` is replaced with 4 random hex characters, giving each device a unique room name
-- **Non-destructive**: The env file values only pre-fill the form — they aren't committed to NVS until the user clicks "Save & Reboot"
+- **Multiple filenames**: Tries `env` and `env.txt` (the `.txt` variant is for Windows users who can't create extensionless files).
+- **Comments**: Lines starting with `#` are ignored.
+- **Quotes**: Values can be optionally wrapped in single or double quotes.
+- **`<RANDOM4>` placeholder**: In `LIVEKIT_ROOM`, `<RANDOM4>` is replaced with 4 random hex characters, giving each device a unique room name.
+- **Non-destructive**: The env file values only pre-fill the form — they aren't committed to NVS until the user clicks "Save & Reboot."
 
 ### Factory provisioning workflow
 
@@ -399,6 +399,6 @@ To change WiFi or LiveKit settings:
 
 ## What's next
 
-The device now handles its own credentials — but you still need a serial cable to update firmware and a computer to flash it. Future posts will tackle over-the-air updates, more advanced audio processing, and data channel communication.
+The device now handles its own credentials — but you still need a serial cable to update firmware and a computer to flash it. Future posts tackle over-the-air updates, more advanced audio processing, and data channel communication.
 
 The captive portal component is designed to be reusable. If you're building a different LiveKit ESP32 project, you can copy `components/captive_portal/` into your project and integrate it in a few lines of code.

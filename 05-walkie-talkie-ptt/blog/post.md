@@ -1,6 +1,6 @@
 # Push-to-Talk Walkie-Talkie: GPIO Buttons and Audio Muting on LiveKit ESP32
 
-Posts [01](../../01-custom-hardware-quickstart/blog/post.md) through [04](../../04-captive-portal-provisioning/blog/post.md) built up a fully provisioned LiveKit audio device: custom board support, BSP integration, captive portal configuration, and on-device JWT generation. But there's a problem we've been ignoring: **echo feedback**.
+Posts [01](../../01-custom-hardware-quickstart/blog/post.md) through [04](../../04-captive-portal-provisioning/blog/post.md) built up a fully provisioned LiveKit audio device: custom board support, BSP integration, captive portal configuration, and on-device JWT generation. But there's a problem the earlier posts ignored: **echo feedback**.
 
 When the device talks to a LiveKit agent — a voice assistant, a meeting bot, anything that speaks back — the agent's audio plays through the device's speaker. The always-on microphone picks up that speaker output, sends it back to the agent, and the agent hears itself. It responds to its own words, which play through the speaker again, and the loop continues until someone pulls the plug. This is the echo-feedback problem, and it makes always-on audio unusable for agent interaction without echo cancellation.
 
@@ -16,13 +16,13 @@ The code is in [`05-walkie-talkie-ptt/code/`](../code/).
 
 Same hardware and tools as Posts 01–04:
 
-- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm)
-- Small speaker with MX1.25 connector
-- ESP-IDF 5.4 or later ([install guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html))
-- [LiveKit Cloud](https://cloud.livekit.io) account (free tier works)
-- USB-C cable
-- **Optional**: A second Waveshare board for walkie-talkie mode
-- **Optional**: MicroSD card with an `env` file (same as Post 04)
+- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm).
+- Small speaker with MX1.25 connector.
+- ESP-IDF 5.4 or later ([install guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html)).
+- [LiveKit Cloud](https://cloud.livekit.io) account (free tier works).
+- USB-C cable.
+- **Optional**: A second Waveshare board for walkie-talkie mode.
+- **Optional**: MicroSD card with an `env` file (same as Post 04).
 
 ## Part 1: The Echo Problem and How PTT Solves It
 
@@ -53,7 +53,7 @@ With PTT, the microphone is muted by default. The agent can speak freely through
 
 ### Hardware muting vs. server-side muting
 
-The LiveKit protocol supports a `MuteTrackRequest` message that tells the server a track is muted. However, the ESP32 SDK doesn't expose this as a public API yet. Instead, we mute at the **codec level** using `esp_codec_dev_set_in_mute()`:
+The LiveKit protocol supports a `MuteTrackRequest` message that tells the server a track is muted. However, the ESP32 SDK doesn't expose this as a public API yet. Instead, this example mutes at the **codec level** using `esp_codec_dev_set_in_mute()`:
 
 ```c
 esp_codec_dev_set_in_mute(record_handle, true);   // Mute mic
@@ -68,15 +68,15 @@ The trade-off: other participants in the room see the audio track as "active" ev
 
 ### GPIO0 on ESP32-S3
 
-Every ESP32-S3 development board has a **boot button** wired to GPIO0. On the Waveshare ESP32-S3-Touch-LCD-1.83, GPIO0 is not used by the BSP (which claims GPIOs 1–16, 38–40, and 45–46 for I2C, I2S, SPI, LCD, and SD card). That makes it a free GPIO we can use for PTT with no conflicts.
+Every ESP32-S3 development board has a **boot button** wired to GPIO0. On the Waveshare ESP32-S3-Touch-LCD-1.83, GPIO0 is not used by the BSP (which claims GPIOs 1–16, 38–40, and 45–46 for I2C, I2S, SPI, LCD, and SD card). That makes it a free GPIO you can use for PTT with no conflicts.
 
-The boot button is **active-low**: pressing it pulls GPIO0 to ground; releasing it lets the internal pull-up resistor bring it back to 3.3V. We configure the GPIO with `GPIO_INTR_ANYEDGE` to trigger an interrupt on both press (falling edge) and release (rising edge).
+The boot button is **active-low**: pressing it pulls GPIO0 to ground; releasing it lets the internal pull-up resistor bring it back to 3.3V. Configure the GPIO with `GPIO_INTR_ANYEDGE` to trigger an interrupt on both press (falling edge) and release (rising edge).
 
 ### Debouncing
 
 Mechanical buttons don't produce clean edges. When you press a button, the contacts bounce — rapidly opening and closing for a few milliseconds before settling. Without debouncing, a single press could trigger dozens of interrupts.
 
-We handle this with a 50 ms one-shot timer:
+A 50 ms one-shot timer handles this:
 
 ```mermaid
 sequenceDiagram
@@ -162,7 +162,7 @@ The GPIO pin is configurable via `menuconfig` → "LiveKit Example" → "PTT but
 
 The boot flow is identical to Post 04 — captive portal, WiFi, NTP, JWT, room connection. The only changes are in `main.c`:
 
-**1. PTT init on room connect.** We initialize PTT in the room state callback, not in `app_main()`. This ensures the audio pipeline is running before we start muting:
+**1. PTT init on room connect.** PTT is initialized in the room state callback, not in `app_main()`. This ensures the audio pipeline is running before the mic starts muting:
 
 ```c
 static void on_room_state_changed(livekit_connection_state_t state, void *ctx)
@@ -269,9 +269,9 @@ The `ptt_minimal` reference app used GPIO2 as a PTT indicator LED. On the Wavesh
 
 Options for visual feedback:
 
-1. **Console logs** (this post) — simple, no hardware conflicts
-2. **The 1.83" LCD** — render a PTT status indicator on the touch display (requires LVGL, covered in a later post)
-3. **External LED** — wire an LED to any free GPIO and change `CONFIG_PTT_BUTTON_GPIO` in menuconfig
+1. **Console logs** (this post) — simple, no hardware conflicts.
+2. **The 1.83" LCD** — render a PTT status indicator on the touch display (requires LVGL, covered in a later post).
+3. **External LED** — wire an LED to any free GPIO and change `CONFIG_PTT_BUTTON_GPIO` in menuconfig.
 
 The Kconfig option makes the GPIO configurable, so readers using boards with dedicated LED pins can add visual feedback without modifying code.
 

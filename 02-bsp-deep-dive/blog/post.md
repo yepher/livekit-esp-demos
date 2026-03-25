@@ -1,12 +1,12 @@
 # ESP32 Board Support Packages: When to Use One and How to Write Your Own
 
-In [Post 01](../../01-custom-hardware-quickstart/blog/post.md) we brought up the Waveshare ESP32-S3-Touch-LCD-1.83 from scratch — reading the schematic, mapping every GPIO pin, writing register-level PMU and codec init code, and wiring up I2S in TDM mode. The result was a fully working LiveKit audio session, but the `board.c` file ran to about 300 lines, and every new board would need a similar effort.
+In [Post 01](../../01-custom-hardware-quickstart/blog/post.md) you brought up the Waveshare ESP32-S3-Touch-LCD-1.83 from scratch — reading the schematic, mapping every GPIO pin, writing register-level PMU and codec init code, and wiring up I2S in TDM mode. The result was a fully working LiveKit audio session, but the `board.c` file ran to about 300 lines, and every new board would need a similar effort.
 
 Most of that code is boilerplate that someone has already written. ESP-IDF's **Board Support Package** (BSP) system lets hardware vendors publish pre-built components that encapsulate all the pin definitions, peripheral init sequences, and board-specific quirks for a given board. When a BSP exists for your hardware, you can replace hundreds of lines of manual init with a handful of function calls.
 
 This post covers three things:
 1. **What a BSP is** and how the ESP-IDF BSP ecosystem works
-2. **Using the published Waveshare BSP** to shrink our `board.c` from ~300 lines to ~30
+2. **Using the published Waveshare BSP** to shrink the `board.c` from ~300 lines to ~30
 3. **Writing your own BSP** when no published one exists (or the published one doesn't fit your needs)
 
 The code for this post is in the [`02-bsp-deep-dive/code/`](../code/) directory. The `board.h` API contract — `board_init()`, `get_playback_handle()`, `get_record_handle()` — is identical to Post 01. Everything above the board layer (media pipeline, LiveKit room connection) is unchanged.
@@ -15,33 +15,33 @@ The code for this post is in the [`02-bsp-deep-dive/code/`](../code/) directory.
 
 Same hardware and tools as Post 01:
 
-- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm)
-- Small speaker with MX1.25 connector
-- ESP-IDF 5.4 or later ([install guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html))
-- [LiveKit Cloud](https://cloud.livekit.io) account (free tier works)
-- Python 3 with `livekit-api` (`pip install livekit-api`)
-- USB-C cable
+- [Waveshare ESP32-S3-Touch-LCD-1.83](https://www.waveshare.com/esp32-s3-touch-lcd-1.83.htm).
+- Small speaker with MX1.25 connector.
+- ESP-IDF 5.4 or later ([install guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html)).
+- [LiveKit Cloud](https://cloud.livekit.io) account (free tier works).
+- Python 3 with `livekit-api` (`pip install livekit-api`).
+- USB-C cable.
 
 ## Part 1: What is a BSP?
 
 A Board Support Package is an ESP-IDF component that encapsulates everything specific to a particular development board:
 
-- **Pin definitions** — which GPIOs connect to which peripherals
-- **Peripheral initialization** — I2C bus setup, I2S channel configuration, display init
-- **Board quirks** — PMU power sequencing, IO expander control, codec-specific workarounds
-- **Kconfig options** — configurable peripheral port numbers, feature toggles, display settings
+- **Pin definitions** — which GPIOs connect to which peripherals.
+- **Peripheral initialization** — I2C bus setup, I2S channel configuration, display init.
+- **Board quirks** — PMU power sequencing, IO expander control, codec-specific workarounds.
+- **Kconfig options** — configurable peripheral port numbers, feature toggles, display settings.
 
 The BSP exposes a standardized API so application code can call `bsp_audio_codec_speaker_init()` without knowing whether the board uses an ES8311, ES8388, or something else entirely. Your application code just gets an `esp_codec_dev_handle_t` back and uses it the same way regardless of the underlying hardware.
 
 ### Where to find BSPs
 
-**[IDF Component Registry](https://components.espressif.com/)** — Search for your board name. BSPs are published as regular IDF components that you add to `idf_component.yml`. For example, the Waveshare board we're using has `waveshare/esp32_s3_touch_lcd_1_83`.
+**[IDF Component Registry](https://components.espressif.com/)** — Search for your board name. BSPs are published as regular IDF components that you add to `idf_component.yml`. For example, the Waveshare board in this series has `waveshare/esp32_s3_touch_lcd_1_83`.
 
 **[esp-bsp GitHub repo](https://github.com/espressif/esp-bsp)** — Espressif maintains BSPs for their own boards (ESP-BOX, Korvo, LCD-EV-Board) plus community-contributed BSPs. This is a good reference for writing your own.
 
 **[Official BSP documentation](https://docs.espressif.com/projects/esp-bsp/en/latest/)** — The full specification for creating and using BSPs, including the standard API surface and Kconfig conventions.
 
-### The four audio functions we care about
+### The four audio functions you need
 
 Every BSP with audio support exposes these functions:
 
@@ -58,7 +58,7 @@ The speaker and microphone init functions are *lazy* — they automatically call
 
 ### Step 1: Update dependencies
 
-In Post 01, our `idf_component.yml` listed the codec drivers explicitly:
+In Post 01, the `idf_component.yml` listed the codec drivers explicitly:
 
 ```yaml
 # Post 01 — manual codec drivers
@@ -72,7 +72,7 @@ dependencies:
   espressif/es7210: "*"
 ```
 
-With the BSP, we replace the individual codec drivers with a single BSP dependency. The BSP pulls in `es8311`, `es7210`, and `esp_codec_dev` transitively:
+With the BSP, the individual codec drivers are replaced by a single BSP dependency. The BSP pulls in `es8311`, `es7210`, and `esp_codec_dev` transitively:
 
 ```yaml
 # Post 02 — BSP handles codec drivers
@@ -85,7 +85,7 @@ dependencies:
   waveshare/esp32_s3_touch_lcd_1_83: "*"
 ```
 
-We keep `esp_codec_dev` explicitly because our `media.c` uses its types directly. The BSP also depends on it, so there's no conflict.
+Keep `esp_codec_dev` explicitly because `media.c` uses its types directly. The BSP also depends on it, so there's no conflict.
 
 ### Step 2: Replace board.c
 
@@ -180,12 +180,12 @@ Open the **User join URL** from the token generation step — same two-way audio
 
 Using a published BSP is the easy path. But you'll need to write your own when:
 
-- **No BSP exists** for your board
-- **The BSP is missing audio support** (some display-focused BSPs don't include audio functions)
-- **You need a custom I2S configuration** (e.g., TDM mode for multi-channel recording, or non-standard sample rates)
-- **You're designing a custom product** and want a clean, reusable hardware abstraction
+- **No BSP exists** for your board.
+- **The BSP is missing audio support** (some display-focused BSPs don't include audio functions).
+- **You need a custom I2S configuration** (e.g., TDM mode for multi-channel recording, or non-standard sample rates).
+- **You're designing a custom product** and want a clean, reusable hardware abstraction.
 
-The [official Espressif BSP documentation](https://docs.espressif.com/projects/esp-bsp/en/latest/) covers the full BSP specification, including display, touch, buttons, SD card, and other peripherals. Here we'll focus on the audio subset — the four functions our LiveKit application needs.
+The [official Espressif BSP documentation](https://docs.espressif.com/projects/esp-bsp/en/latest/) covers the full BSP specification, including display, touch, buttons, SD card, and other peripherals. This section focuses on the audio subset — the four functions your LiveKit application needs.
 
 ### File structure
 
@@ -415,7 +415,7 @@ There's no single "right" approach. Here's a comparison to help you decide:
 
 ### A note on I2S modes
 
-One practical trade-off worth highlighting: the BSP's `bsp_audio_init()` uses **standard I2S mode** for both TX and RX channels. In Post 01, we used **TDM mode** for the RX channel (ES7210) to get all four microphone channels on separate time slots — this is what the AEC (Acoustic Echo Cancellation) pipeline expects.
+One practical trade-off worth highlighting: the BSP's `bsp_audio_init()` uses **standard I2S mode** for both TX and RX channels. Post 01 used **TDM mode** for the RX channel (ES7210) to get all four microphone channels on separate time slots — this is what the AEC (Acoustic Echo Cancellation) pipeline expects.
 
 If your application needs TDM (for example, multi-channel recording or AEC with a reference channel), you have two options:
 
@@ -439,4 +439,4 @@ The `board.h` API contract — `board_init()`, `get_playback_handle()`, `get_rec
 
 If a published BSP exists for your board and fits your needs, use it — you'll save time and get upstream bug fixes for free. If not, writing a minimal audio BSP is straightforward: take your working manual init code, wrap it in the four standard functions, add an idempotent guard and Kconfig options, and you've got a reusable component.
 
-In the next post, we'll build an audio pipeline from discrete components on a breadboard — no dev board, no BSP, just an ESP32-S3 module wired directly to codec breakout boards.
+The next post builds an audio pipeline from discrete components on a breadboard — no dev board, no BSP, just an ESP32-S3 module wired directly to codec breakout boards.
